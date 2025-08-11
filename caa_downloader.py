@@ -3,7 +3,8 @@
 # This module uses a local SQLite data store to find missing cover art images,
 # downloads them from a remote server, and saves them to a local directory
 # organized by MBID. This version has been updated to support multithreaded
-# downloading for improved performance.
+# downloading for improved performance and includes a retry mechanism for
+# database lock errors.
 #
 # Before running, ensure you have the required libraries installed:
 # pip install peewee psycopg2-binary tqdm click python-dotenv requests
@@ -14,10 +15,12 @@
 import os
 import requests
 import click
+import time
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
+import peewee # Import peewee to catch its specific errors
 
 # -----------------------------------------------------------------------------
 # The main class for the downloader project.
@@ -73,28 +76,25 @@ class CAADownloader:
         status = CoverStatus.DOWNLOADED
         error = None
 
-        while True:
-            try:
-                response = requests.get(url, headers=self.headers, timeout=30)
-                response.raise_for_status()
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
 
-                with open(filepath, 'wb') as f:
-                    f.write(response.content)
-                    
-                break
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
 
-            except requests.exceptions.HTTPError as e:
-                if 400 <= e.response.status_code < 500:
-                    status = CoverStatus.PERMANENT_ERROR
-                    error = str(e)
-                elif 500 <= e.response.status_code < 600:
-                    status = CoverStatus.TEMP_ERROR
-                    error = str(e)
-            except requests.exceptions.RequestException as e:
+        except requests.exceptions.HTTPError as e:
+            if 400 <= e.response.status_code < 500:
+                status = CoverStatus.PERMANENT_ERROR
+                error = str(e)
+            elif 500 <= e.response.status_code < 600:
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
-            finally:
-                self.datastore.update(caa_id=caa_id, new_status=status, error=error)
+        except requests.exceptions.RequestException as e:
+            status = CoverStatus.TEMP_ERROR
+            error = str(e)
+        finally:
+            self.datastore.update(caa_id=caa_id, new_status=status, error=error)
             
         return record.caa_id # Return something to indicate completion
 
@@ -106,9 +106,7 @@ class CAADownloader:
         print("Starting image download process...")
         
         with self.datastore:
-            total_missing = self.datastore.model.select().where(
-                self.datastore.model.status == CoverStatus.NOT_DOWNLOADED.value
-            ).count()
+            total_missing = self.datastore.get_undownloaded_count()
             
             if total_missing == 0:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
@@ -125,8 +123,10 @@ class CAADownloader:
                         if not records_to_download:
                             break
 
+                        # Submit download tasks to the thread pool
                         future_to_record = {executor.submit(self._download_and_save_record, record): record for record in records_to_download}
                         for future in future_to_record:
+                            # Wait for the next task to complete
                             future.result()
                             pbar.update(1)
 
@@ -142,6 +142,7 @@ def main():
     Script to download missing cover art from a remote server.
     Configuration is read from a .env file.
     """
+    # Load environment variables from a .env file
     load_dotenv()
     
     db_path = os.getenv('DB_PATH')
@@ -177,4 +178,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -194,6 +194,21 @@ class CAABackupDataStore:
                     continue
                 raise []
 
+    def get_undownloaded_count(self):
+        """
+        Retrieves the total count of records that have not been downloaded.
+        """
+        while True:
+            try:
+                return self.model.select().where(
+                    self.model.status == CoverStatus.NOT_DOWNLOADED.value
+                ).count()
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(1)
+                    continue
+                raise err
+
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
         self.db.connect()
@@ -202,3 +217,4 @@ class CAABackupDataStore:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit point. Closes the database connection."""
         self.db.close()
+
