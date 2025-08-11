@@ -73,25 +73,28 @@ class CAADownloader:
         status = CoverStatus.DOWNLOADED
         error = None
 
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30)
-            response.raise_for_status()
+        while True:
+            try:
+                response = requests.get(url, headers=self.headers, timeout=30)
+                response.raise_for_status()
 
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                    
+                break
 
-        except requests.exceptions.HTTPError as e:
-            if 400 <= e.response.status_code < 500:
-                status = CoverStatus.PERMANENT_ERROR
-                error = str(e)
-            elif 500 <= e.response.status_code < 600:
+            except requests.exceptions.HTTPError as e:
+                if 400 <= e.response.status_code < 500:
+                    status = CoverStatus.PERMANENT_ERROR
+                    error = str(e)
+                elif 500 <= e.response.status_code < 600:
+                    status = CoverStatus.TEMP_ERROR
+                    error = str(e)
+            except requests.exceptions.RequestException as e:
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
-        except requests.exceptions.RequestException as e:
-            status = CoverStatus.TEMP_ERROR
-            error = str(e)
-        finally:
-            self.datastore.update(caa_id=caa_id, new_status=status, error=error)
+            finally:
+                self.datastore.update(caa_id=caa_id, new_status=status, error=error)
             
         return record.caa_id # Return something to indicate completion
 

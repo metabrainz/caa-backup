@@ -7,6 +7,7 @@
 
 import peewee
 import enum
+import time
 
 # -----------------------------------------------------------------------------
 # Define the Enum for the record status.
@@ -127,11 +128,17 @@ class CAABackupDataStore:
 
     def get(self, caa_id: int):
         """Retrieves a single record by its CAA ID."""
-        try:
-            return self.model.get_or_none(self.model.caa_id == caa_id)
-        except peewee.OperationalError as e:
-            print(f"Database error: {e}")
-            return None
+        while True:
+            try:
+                return self.model.get_or_none(self.model.caa_id == caa_id)
+            except peewee.OperationalError as e:
+                print(f"Database error: {e}")
+                return None
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(1)
+                    continue
+                raise err
 
     def get_batch(self, status: CoverStatus = CoverStatus.NOT_DOWNLOADED, count: int = 100):
         """
@@ -141,35 +148,51 @@ class CAABackupDataStore:
             status (CoverStatus): The status to filter by. Defaults to NOT_DOWNLOADED.
             count (int): The maximum number of records to retrieve.
         """
-        try:
-            return self.model.select().where(
-                self.model.status == status.value
-            ).order_by(self.model.release_mbid).limit(count)
-        except peewee.OperationalError as e:
-            print(f"Database error: {e}")
-            return []
+        while True:
+            try:
+                return self.model.select().where(
+                    self.model.status == status.value
+                ).order_by(self.model.release_mbid).limit(count)
+            except peewee.OperationalError as e:
+                print(f"Database error: {e}")
+                return []
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(1)
+                    continue
+                raise err
 
     def update(self, caa_id: int, new_status: CoverStatus, error: str = None):
         """Updates the status and error for a specific record."""
-        try:
-            record = self.model.get(self.model.caa_id == caa_id)
-            record.status = new_status.value
-            record.error = error
-            record.save()
-        except self.model.DoesNotExist:
-            print(f"Error: Record with CAA ID {caa_id} not found.")
+        while True:
+            try:
+                record = self.model.get(self.model.caa_id == caa_id)
+                record.status = new_status.value
+                record.error = error
+                record.save()
+                return
+            except self.model.DoesNotExist:
+                print(f"Error: Record with CAA ID {caa_id} not found.")
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(1)
+                    continue
+                raise err
 
     def get_failed(self):
         """Retrieves all records with a 'failed' status."""
-        try:
-            # We need to query for both temporary and permanent errors
-            return self.model.select().where(
-                (self.model.status == CoverStatus.TEMP_ERROR.value) |
-                (self.model.status == CoverStatus.PERMANENT_ERROR.value)
-            )
-        except peewee.OperationalError as e:
-            print(f"Database error: {e}")
-            return []
+        while True:
+            try:
+                # We need to query for both temporary and permanent errors
+                return self.model.select().where(
+                    (self.model.status == CoverStatus.TEMP_ERROR.value) |
+                    (self.model.status == CoverStatus.PERMANENT_ERROR.value)
+                )
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(1)
+                    continue
+                raise []
 
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
