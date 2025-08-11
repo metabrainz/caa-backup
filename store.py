@@ -9,6 +9,9 @@ import peewee
 import enum
 import time
 
+# Define a constant for the database retry delay
+DB_RETRY_DELAY_SECONDS = .1
+
 # -----------------------------------------------------------------------------
 # Define the Enum for the record status.
 # -----------------------------------------------------------------------------
@@ -136,7 +139,7 @@ class CAABackupDataStore:
                 return None
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
-                    time.sleep(1)
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise err
 
@@ -158,7 +161,7 @@ class CAABackupDataStore:
                 return []
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
-                    time.sleep(1)
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise err
 
@@ -175,7 +178,7 @@ class CAABackupDataStore:
                 print(f"Error: Record with CAA ID {caa_id} not found.")
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
-                    time.sleep(1)
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise err
 
@@ -190,7 +193,7 @@ class CAABackupDataStore:
                 )
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
-                    time.sleep(1)
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise []
 
@@ -205,7 +208,7 @@ class CAABackupDataStore:
                 ).count()
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
-                    time.sleep(1)
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise err
 
@@ -217,4 +220,3 @@ class CAABackupDataStore:
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit point. Closes the database connection."""
         self.db.close()
-
