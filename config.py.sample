@@ -1,2 +1,0 @@
-# Database connection.
-MBID_MAPPING_DATABASE_URI = "dbname=musicbrainz_db user=musicbrainz host=localhost port=5432 password=musicbrainz"
