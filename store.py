@@ -8,9 +8,10 @@
 import peewee
 import enum
 import time
+from typing import List, Tuple
 
 # Define a constant for the database retry delay
-DB_RETRY_DELAY_SECONDS = .1
+DB_RETRY_DELAY_SECONDS = 1
 
 # -----------------------------------------------------------------------------
 # Define the Enum for the record status.
@@ -182,6 +183,48 @@ class CAABackupDataStore:
                     continue
                 raise err
 
+    def bulk_update_downloaded_status(self, caa_ids: List[int]):
+        """
+        Updates the status to 'DOWNLOADED' for a list of CAA IDs.
+        This is done in a single, efficient query.
+
+        Args:
+            caa_ids (List[int]): A list of caa_ids to update.
+        """
+        if not caa_ids:
+            return
+
+        while True:
+            try:
+                with self.db.atomic():
+                    self.model.update(status=CoverStatus.DOWNLOADED.value).where(
+                        self.model.caa_id.in_(caa_ids)
+                    ).execute()
+                return
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
+                    continue
+                raise err
+
+    def mark_all_as_undownloaded(self):
+        """
+        Marks all records in the database as 'NOT_DOWNLOADED'.
+        This is a single, efficient query.
+        """
+        while True:
+            try:
+                with self.db.atomic():
+                    self.model.update(
+                        status=CoverStatus.NOT_DOWNLOADED.value
+                    ).execute()
+                return
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
+                    continue
+                raise err
+
     def get_failed(self):
         """Retrieves all records with a 'failed' status."""
         while True:
@@ -211,6 +254,28 @@ class CAABackupDataStore:
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
                 raise err
+
+    def get_status_counts(self):
+        """
+        Retrieves the count of records for each status.
+        Returns:
+            dict: A dictionary with CoverStatus enum members as keys and their counts as values.
+        """
+        counts = {}
+        for status_enum in CoverStatus:
+            while True:
+                try:
+                    count = self.model.select().where(
+                        self.model.status == status_enum.value
+                    ).count()
+                    counts[status_enum.name] = count
+                    break
+                except peewee.OperationalError as err:
+                    if "database is locked" in str(err):
+                        time.sleep(DB_RETRY_DELAY_SECONDS)
+                        continue
+                    raise err
+        return counts
 
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
