@@ -17,10 +17,10 @@ DB_RETRY_DELAY_SECONDS = 1
 # Define the Enum for the record status.
 # -----------------------------------------------------------------------------
 class CoverStatus(enum.Enum):
-    NOT_DOWNLOADED = 1
-    DOWNLOADED = 2
-    TEMP_ERROR = 3
-    PERMANENT_ERROR = 4
+    NOT_DOWNLOADED = 0
+    DOWNLOADED = 1
+    TEMP_ERROR = 2
+    PERMANENT_ERROR = 3
 
 # -----------------------------------------------------------------------------
 # Define the PeeWee Model for our table.
