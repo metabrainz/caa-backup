@@ -22,14 +22,14 @@ cp dot-env-sample .env
 
 Then edit .env according to your needs:
 
-PG_CONN_STRING -- the postgres connection string for access to a MusicBrainz database
-DB_PATH="caa_backup.db" -- the location where to store the local database file to keep track of progress.
-CACHE_DIR="caa-backup" -- the cache directory where to store the downloaded files
-DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
+* PG_CONN_STRING -- the postgres connection string for access to a MusicBrainz database
+* DB_PATH="caa_backup.db" -- the location where to store the local database file to keep track of progress.
+* CACHE_DIR="caa-backup" -- the cache directory where to store the downloaded files
+* DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
 
 ## First run
 
-Run caa_imorter.py to download the cover_art_archive.cover_art table into SQLite.
+Run caa_importer.py to download the cover_art_archive.cover_art table into SQLite.
 
 Then, run caa_downloader.py to download the cover art images. This is going to take DAYS, if not WEEKS!
 
