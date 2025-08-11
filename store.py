@@ -144,7 +144,7 @@ class CAABackupDataStore:
         try:
             return self.model.select().where(
                 self.model.status == status.value
-            ).limit(count)
+            ).order_by(self.model.release_mbid).limit(count)
         except peewee.OperationalError as e:
             print(f"Database error: {e}")
             return []

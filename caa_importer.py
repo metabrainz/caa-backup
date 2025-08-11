@@ -105,7 +105,7 @@ class CAAImporter:
                 count_query = """SELECT count(*)
                                  FROM cover_art_archive.cover_art caa
                                  JOIN musicbrainz.release r
-                                    ON caa.release = r.id;"""
+                                   ON caa.release = r.id"""
                 cursor.execute(count_query)
                 total_records = cursor.fetchone()[0]
             
@@ -115,7 +115,8 @@ class CAAImporter:
                 data_query = """SELECT caa.id, r.gid, caa.mime_type
                                  FROM cover_art_archive.cover_art caa
                                  JOIN musicbrainz.release r
-                                    ON caa.release = r.id;"""
+                                   ON caa.release = r.id
+                             ORDER BY r.gid"""
                 print(f"Executing query to fetch data...")
                 cursor.execute(data_query)
 
