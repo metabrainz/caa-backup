@@ -48,7 +48,7 @@ class CAAImporter:
         Returns the connection object if successful, otherwise None.
         """
         print("Connecting to PostgreSQL...")
-        try
+        try:
             self.pg_conn = psycopg2.connect(self.pg_conn_string)
             print("Successfully connected to PostgreSQL.")
             return self.pg_conn
