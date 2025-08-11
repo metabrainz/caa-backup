@@ -27,14 +27,16 @@ DB_PATH="caa_backup.db" -- the location where to store the local database file t
 CACHE_DIR="caa-backup" -- the cache directory where to store the downloaded files
 DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
 
-## Running
+## First run
 
-First, run caa_imorter.py to download the cover_art_archive.cover_art table into SQLite.
+Run caa_imorter.py to download the cover_art_archive.cover_art table into SQLite.
 
 Then, run caa_downloader.py to download the cover art images. This is going to take DAYS, if not WEEKS!
 
-Finally, run caa_verify.py to reset all the download statuses in the DB, check the local filesystem,
-and then mark all local files as downloaded. This step should be repeat once the downloader finishes
-to try and re-try all images that were not downloaded.
 
-To start the process over again
+## Subsequent runs
+
+To keep the backup up-to-date run the caa_importer.py script again to re-download all the CAA data, 
+then re-run caa_verify.py to mark all the downloaded files as downloaded. Finally, run caa_downloader.py
+again to download any new files that were added since the last run.
+

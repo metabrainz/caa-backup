@@ -68,18 +68,19 @@ class CAADownloader:
             print(f"Error: A record object is missing a required attribute: {e}")
             return None, None
 
-        url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.jpg"
+        # The mime_type attribute is also expected for correct file extension.
+        if hasattr(record, 'mime_type') and record.mime_type:
+            extension = 'jpg' if record.mime_type == 'image/jpeg' else record.mime_type.split('/')[-1]
+        else:
+            extension = 'jpg'
+
+        url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.{extension}"
 
         mbid_prefix_1 = release_mbid[0]
         mbid_prefix_2 = release_mbid[1]
         target_dir = os.path.join(self.cache_dir, mbid_prefix_1, mbid_prefix_2)
         os.makedirs(target_dir, exist_ok=True)
 
-        # The mime_type attribute is also expected for correct file extension.
-        if hasattr(record, 'mime_type') and record.mime_type:
-            extension = 'jpg' if record.mime_type == 'image/jpeg' else record.mime_type.split('/')[-1]
-        else:
-            extension = 'jpg'
 
         filename = f"{release_mbid}-{caa_id}.{extension}"
         filepath = os.path.join(target_dir, filename)
@@ -109,6 +110,7 @@ class CAADownloader:
                 if 400 <= e.response.status_code < 500:
                     status = CoverStatus.PERMANENT_ERROR
                     error = str(e)
+                    print(str(e))
                 else:  # 5xx server errors
                     status = CoverStatus.TEMP_ERROR
                     error = str(e)
@@ -154,7 +156,7 @@ class CAADownloader:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
 
-            print(f"Found {total_missing} records to download. Starting threads...")
+            print(f"Found {total_missing:,} records to download. Starting threads...")
 
             with tqdm(total=total_missing, desc="Downloading images", unit="images") as pbar:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
