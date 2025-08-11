@@ -2,3 +2,5 @@ peewee
 python-dotenv
 psycopg2-binary
 requests
+click
+tqdm

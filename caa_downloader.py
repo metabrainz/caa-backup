@@ -27,7 +27,7 @@ class CAADownloader:
     A class to handle downloading cover art images from a remote server and
     storing them locally based on a configured directory structure.
     """
-    def __init__(self, db_path: str, cache_dir: str, batch_size: int = 1000, download_threads: int = 4):
+    def __init__(self, db_path: str, cache_dir: str, batch_size: int = 1000, download_threads: int = 8):
         """
         Initializes the downloader with paths to the datastore and download directory.
 
@@ -122,10 +122,8 @@ class CAADownloader:
                         if not records_to_download:
                             break
 
-                        # Submit download tasks to the thread pool
                         future_to_record = {executor.submit(self._download_and_save_record, record): record for record in records_to_download}
                         for future in future_to_record:
-                            # Wait for the next task to complete
                             future.result()
                             pbar.update(1)
 
@@ -136,17 +134,16 @@ class CAADownloader:
 # Main entry point for the script
 # -----------------------------------------------------------------------------
 @click.command()
-@click.option('--download-threads', default=4, type=int, help='Number of download threads to use.')
-def main(download_threads):
+def main():
     """
     Script to download missing cover art from a remote server.
     Configuration is read from a .env file.
     """
-    # Load environment variables from a .env file
     load_dotenv()
     
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('CACHE_DIR')
+    download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
@@ -155,6 +152,16 @@ def main(download_threads):
     if not cache_dir:
         click.echo("Error: CACHE_DIR environment variable is not set.", err=True)
         return
+
+    try:
+        download_threads = int(download_threads)
+    except ValueError:
+        click.echo("Warning: DOWNLOAD_THREADS must be an integer. Defaulting to 8.", err=True)
+        download_threads = 8
+
+    if download_threads <= 0:
+        click.echo("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.", err=True)
+        download_threads = 8
         
     downloader = CAADownloader(
         db_path=db_path,
