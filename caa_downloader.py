@@ -19,8 +19,7 @@ import time
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
 from tqdm import tqdm
-from concurrent.futures import ThreadPoolExecutor
-import peewee # Import peewee to catch its specific errors
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # -----------------------------------------------------------------------------
 # The main class for the downloader project.
@@ -42,8 +41,8 @@ class CAADownloader:
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
         self.cache_dir = cache_dir
-        self.batch_size = batch_size
         self.headers = {'User-Agent': 'Cover Art Archive Backup'}
+        self.batch_size = batch_size
         self.download_threads = download_threads
 
         # Ensure the base download directory exists
@@ -55,9 +54,18 @@ class CAADownloader:
         """
         Private method to download and save a single image record.
         This method is designed to be run in a separate thread.
+        
+        Returns the release_mbid and caa_id on completion.
         """
-        release_mbid = record.release_mbid
-        caa_id = record.caa_id
+        # The record object must have 'mbid' and 'caa_id' attributes
+        # to function correctly.
+        try:
+            release_mbid = record.release_mbid
+            caa_id = record.caa_id
+        except AttributeError as e:
+            print(f"Error: A record object is missing a required attribute: {e}")
+            return None, None
+            
         url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.jpg"
 
         mbid_prefix_1 = release_mbid[0]
@@ -65,7 +73,8 @@ class CAADownloader:
         target_dir = os.path.join(self.cache_dir, mbid_prefix_1, mbid_prefix_2)
         os.makedirs(target_dir, exist_ok=True)
 
-        if record.mime_type:
+        # The mime_type attribute is also expected for correct file extension.
+        if hasattr(record, 'mime_type') and record.mime_type:
             extension = 'jpg' if record.mime_type == 'image/jpeg' else record.mime_type.split('/')[-1]
         else:
             extension = 'jpg'
@@ -75,28 +84,56 @@ class CAADownloader:
 
         status = CoverStatus.DOWNLOADED
         error = None
+        
+        # Use a retry loop for transient database errors like locks
+        max_retries = 5
+        retries = 0
+        while retries < max_retries:
+            try:
+                # The datastore update needs to be handled within the thread
+                # to avoid lock contention, so we perform it here.
+                response = requests.get(url, headers=self.headers, timeout=30)
+                response.raise_for_status()
 
-        try:
-            response = requests.get(url, headers=self.headers, timeout=30)
-            response.raise_for_status()
-
-            with open(filepath, 'wb') as f:
-                f.write(response.content)
-
-        except requests.exceptions.HTTPError as e:
-            if 400 <= e.response.status_code < 500:
-                status = CoverStatus.PERMANENT_ERROR
-                error = str(e)
-            elif 500 <= e.response.status_code < 600:
+                with open(filepath, 'wb') as f:
+                    f.write(response.content)
+                
+                # Update the database
+                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                return release_mbid, caa_id # Success, exit the loop
+            
+            except requests.exceptions.HTTPError as e:
+                # Handle HTTP errors
+                if 400 <= e.response.status_code < 500:
+                    status = CoverStatus.PERMANENT_ERROR
+                    error = str(e)
+                else: # 5xx server errors
+                    status = CoverStatus.TEMP_ERROR
+                    error = str(e)
+                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                return None, None # Don't retry, just return
+            
+            except requests.exceptions.RequestException as e:
+                # Handle other request exceptions like timeouts
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
-        except requests.exceptions.RequestException as e:
-            status = CoverStatus.TEMP_ERROR
-            error = str(e)
-        finally:
-            self.datastore.update(caa_id=caa_id, new_status=status, error=error)
+                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                return None, None # Don't retry, just return
             
-        return record.caa_id # Return something to indicate completion
+            except Exception as e:
+                # Handle other unexpected errors
+                status = CoverStatus.TEMP_ERROR
+                error = str(e)
+                if "database is locked" in str(e).lower():
+                    retries += 1
+                    time.sleep(0.1 * retries) # Exponential backoff
+                else:
+                    self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                    return None, None
+        
+        # If the loop finishes without success, mark as a temp error
+        self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=CoverStatus.TEMP_ERROR, error="Max retries reached due to database lock.")
+        return None, None
 
     def run_downloader(self):
         """
@@ -112,6 +149,8 @@ class CAADownloader:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
 
+            print(f"Found {total_missing} records to download. Starting threads...")
+
             with tqdm(total=total_missing, desc="Downloading images", unit="images") as pbar:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     while True:
@@ -125,10 +164,21 @@ class CAADownloader:
 
                         # Submit download tasks to the thread pool
                         future_to_record = {executor.submit(self._download_and_save_record, record): record for record in records_to_download}
-                        for future in future_to_record:
-                            # Wait for the next task to complete
-                            future.result()
-                            pbar.update(1)
+                        
+                        # Process results as they become available
+                        for future in as_completed(future_to_record):
+                            try:
+                                # Get the result of the completed future
+                                result = future.result()
+                                # The result is (mbid, caa_id) or (None, None) if failed
+                                if result[0] is not None:
+                                    pbar.update(1)
+                                else:
+                                    # Log a failed download, the specific error is handled in _download_and_save_record
+                                    pass
+                            except Exception as e:
+                                # This block handles exceptions from the thread itself
+                                print(f"A download task generated an exception: {e}")
 
             print("\nDownload process complete.")
 
@@ -170,8 +220,7 @@ def main():
     downloader = CAADownloader(
         db_path=db_path,
         cache_dir=cache_dir,
-        download_threads=download_threads,
-        batch_size=1000
+        download_threads=download_threads
     )
     downloader.run_downloader()
 

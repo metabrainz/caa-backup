@@ -166,12 +166,13 @@ class CAABackupDataStore:
                     continue
                 raise err
 
-    def update(self, caa_id: int, new_status: CoverStatus, error: str = None):
+    def update(self, caa_id: int, release_mbid: str, new_status: CoverStatus, error: str = None):
         """Updates the status and error for a specific record."""
         while True:
             try:
-                record = self.model.get(self.model.caa_id == caa_id)
+                record = self.model.get((self.model.caa_id == caa_id) & (self.model.release_mbid == release_mbid))
                 record.status = new_status.value
+                record.release_mbid = release_mbid
                 record.error = error
                 record.save()
                 return
