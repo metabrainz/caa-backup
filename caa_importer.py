@@ -12,6 +12,8 @@
 
 import os
 import peewee
+import sys
+
 import psycopg2
 import click
 from dotenv import load_dotenv
@@ -46,7 +48,7 @@ class CAAImporter:
         Returns the connection object if successful, otherwise None.
         """
         print("Connecting to PostgreSQL...")
-        try:
+        try
             self.pg_conn = psycopg2.connect(self.pg_conn_string)
             print("Successfully connected to PostgreSQL.")
             return self.pg_conn
@@ -163,6 +165,10 @@ def main():
     
     pg_conn_string = os.getenv('PG_CONN_STRING')
     db_path = os.getenv('DB_PATH')
+    
+    if os.path.exists(db_path):
+        print("The DB file %s exists. Please remove it before running this command.")
+        sys.exit(-1)
     
     # Ensure environment variables are set
     if not pg_conn_string:

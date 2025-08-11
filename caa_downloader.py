@@ -21,6 +21,7 @@ from store import CAABackupDataStore, CoverStatus
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+
 # -----------------------------------------------------------------------------
 # The main class for the downloader project.
 # -----------------------------------------------------------------------------
@@ -29,6 +30,7 @@ class CAADownloader:
     A class to handle downloading cover art images from a remote server and
     storing them locally based on a configured directory structure.
     """
+
     def __init__(self, db_path: str, cache_dir: str, batch_size: int = 1000, download_threads: int = 8):
         """
         Initializes the downloader with paths to the datastore and download directory.
@@ -65,7 +67,7 @@ class CAADownloader:
         except AttributeError as e:
             print(f"Error: A record object is missing a required attribute: {e}")
             return None, None
-            
+
         url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.jpg"
 
         mbid_prefix_1 = release_mbid[0]
@@ -78,13 +80,13 @@ class CAADownloader:
             extension = 'jpg' if record.mime_type == 'image/jpeg' else record.mime_type.split('/')[-1]
         else:
             extension = 'jpg'
-        
+
         filename = f"{release_mbid}-{caa_id}.{extension}"
         filepath = os.path.join(target_dir, filename)
 
         status = CoverStatus.DOWNLOADED
         error = None
-        
+
         # Use a retry loop for transient database errors like locks
         max_retries = 5
         retries = 0
@@ -97,42 +99,45 @@ class CAADownloader:
 
                 with open(filepath, 'wb') as f:
                     f.write(response.content)
-                
+
                 # Update the database
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                return release_mbid, caa_id # Success, exit the loop
-            
+                return release_mbid, caa_id  # Success, exit the loop
+
             except requests.exceptions.HTTPError as e:
                 # Handle HTTP errors
                 if 400 <= e.response.status_code < 500:
                     status = CoverStatus.PERMANENT_ERROR
                     error = str(e)
-                else: # 5xx server errors
+                else:  # 5xx server errors
                     status = CoverStatus.TEMP_ERROR
                     error = str(e)
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                return None, None # Don't retry, just return
-            
+                return None, None  # Don't retry, just return
+
             except requests.exceptions.RequestException as e:
                 # Handle other request exceptions like timeouts
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                return None, None # Don't retry, just return
-            
+                return None, None  # Don't retry, just return
+
             except Exception as e:
                 # Handle other unexpected errors
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
                 if "database is locked" in str(e).lower():
                     retries += 1
-                    time.sleep(0.1 * retries) # Exponential backoff
+                    time.sleep(0.1 * retries)  # Exponential backoff
                 else:
                     self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
                     return None, None
-        
+
         # If the loop finishes without success, mark as a temp error
-        self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=CoverStatus.TEMP_ERROR, error="Max retries reached due to database lock.")
+        self.datastore.update(release_mbid=record.release_mbid,
+                              caa_id=record.caa_id,
+                              new_status=CoverStatus.TEMP_ERROR,
+                              error="Max retries reached due to database lock.")
         return None, None
 
     def run_downloader(self):
@@ -141,10 +146,10 @@ class CAADownloader:
         and saves the corresponding images using a thread pool.
         """
         print("Starting image download process...")
-        
+
         with self.datastore:
             total_missing = self.datastore.get_undownloaded_count()
-            
+
             if total_missing == 0:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
@@ -154,17 +159,17 @@ class CAADownloader:
             with tqdm(total=total_missing, desc="Downloading images", unit="images") as pbar:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     while True:
-                        records_to_download = self.datastore.get_batch(
-                            status=CoverStatus.NOT_DOWNLOADED, 
-                            count=self.batch_size
-                        )
+                        records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
 
                         if not records_to_download:
                             break
 
                         # Submit download tasks to the thread pool
-                        future_to_record = {executor.submit(self._download_and_save_record, record): record for record in records_to_download}
-                        
+                        future_to_record = {
+                            executor.submit(self._download_and_save_record, record): record
+                            for record in records_to_download
+                        }
+
                         # Process results as they become available
                         for future in as_completed(future_to_record):
                             try:
@@ -194,15 +199,15 @@ def main():
     """
     # Load environment variables from a .env file
     load_dotenv()
-    
+
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('CACHE_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
-    
+
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         return
-    
+
     if not cache_dir:
         click.echo("Error: CACHE_DIR environment variable is not set.", err=True)
         return
@@ -216,12 +221,8 @@ def main():
     if download_threads <= 0:
         click.echo("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.", err=True)
         download_threads = 8
-        
-    downloader = CAADownloader(
-        db_path=db_path,
-        cache_dir=cache_dir,
-        download_threads=download_threads
-    )
+
+    downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
     downloader.run_downloader()
 
 
