@@ -165,6 +165,9 @@ def main():
     
     pg_conn_string = os.getenv('PG_CONN_STRING')
     db_path = os.getenv('DB_PATH')
+    print("CAA importer config:")
+    print("  pg conn: '%s'" % pg_conn_string)
+    print("  db path: '%s'" % db_path)
     
     if os.path.exists(db_path):
         print("The DB file %s exists. Please remove it before running this command.")

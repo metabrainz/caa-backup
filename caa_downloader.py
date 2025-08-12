@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
 from caa_monitor import CAAServiceMonitor
+from caa_importer import CAAImporter
 
 
 # -----------------------------------------------------------------------------
@@ -252,9 +253,17 @@ def main():
         click.echo("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.", err=True)
         download_threads = 8
 
+    print("Current config")
+    print("  db_path: %s" % db_path)
+    print("  cache_dir: %s" % cache_dir)
+    print("  threads: %d" % download_threads)
+
     # If we do not have a DB, we need to create it first        
     if not os.path.exists(db_path):
         import caa_importer
+
+        from time import sleep
+        sleep(100)
 
         importer = CAAImporter(
             pg_conn_string=pg_conn_string,

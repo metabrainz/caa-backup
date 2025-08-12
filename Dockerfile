@@ -10,15 +10,15 @@ WORKDIR /code
 
 RUN pip3.13 install setuptools
 
-RUN mkdir /code/caa-backup /data
+RUN mkdir /code/caa-backup
 WORKDIR /code/caa-backup
 
-COPY requirements.txt .env /code/caa-backup
+COPY requirements.txt /code/caa-backup
 RUN pip3.13 install -r requirements.txt
 
 RUN apt-get autoremove -y && \
     apt-get clean -y
 
 COPY . /code/caa-backup
-
-CMD python3 ./caa_downloader.py
+COPY ./docker/consul-template.conf /etc/consul-template.conf
+COPY ./docker/caa-backup.service /etc/service/caa-backup/run

@@ -1,0 +1,7 @@
+{{if service "pgbouncer-slave"}}
+{{with index (service "pgbouncer-slave") 0}}
+PG_CONN_STRING = 'postgresql://musicbrainz_ro@{{.Address}}:{{.Port}}/musicbrainz_db'
+{{end}}
+{{else}}
+PG_CONN_STRING = ""
+{{end}}
