@@ -16,6 +16,7 @@ import os
 import requests
 import click
 import time
+import sys
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
 from tqdm import tqdm
@@ -64,10 +65,10 @@ class CAADownloader:
         self.lock.acquire()
         rate = self.pbar.format_dict.get("rate", 0.0)
         self.lock.release()
-        return { "rate": rate,
-                 "total": self.total,
+        return { "download_rate": rate,
+                 "total_to_download": self.total,
                  "downloaded": self.downloaded,
-                 "errors": self.errors }
+                 "download_errors": self.errors }
 
     def _download_and_save_record(self, record):
         """
@@ -209,16 +210,11 @@ class CAADownloader:
                                     # This block handles exceptions from the thread itself
                                     print(f"A download task generated an exception: {e}")
             except KeyboardInterrupt:
-                print("\nKeyboard interrupt received, shutting down threads. Press ^C again to shut down immediately.")
-                try:
-                    print("wait threads")
-                    for future in as_completed(future_to_record):
-                        pass
-                    print("threads joined")
-                except KeyboardInterrupt:
-                    sys.exit(-1)
+                pass
 
             print("\nDownload process complete, exiting...")
+            os._exit(-1)
+
 
 
 # -----------------------------------------------------------------------------
@@ -262,12 +258,6 @@ def main():
     monitor.start()
 
     downloader.run_downloader()
-    print("Main thread exiting.")
-
-    print("join monitor")
-    downloader.shutdown()
-    downloader.join()
-    print("monitor joined")
 
 if __name__ == '__main__':
     main()
