@@ -1,0 +1,4 @@
+.ve
+*.db
+__pycache__
+caa-backup
