@@ -46,7 +46,7 @@ class CAADownloader:
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
         self.cache_dir = cache_dir
-        self.headers = {'User-Agent': 'Cover Art Archive Backup'}
+        self.headers = {'User-Agent': 'Cover Art Archive Backup (rob at metabrainz)'}
         self.batch_size = batch_size
         self.download_threads = download_threads
         self.total = 0
@@ -60,7 +60,7 @@ class CAADownloader:
             os.makedirs(self.cache_dir)
             print(f"Created base cache directory: {self.cache_dir}")
 
-    def status(self):
+    def stats(self):
         self.lock.acquire()
         rate = self.pbar.format_dict.get("rate", 0.0)
         self.lock.release()
@@ -167,20 +167,18 @@ class CAADownloader:
         print("Starting cover art download ...")
 
         with self.datastore:
-            total_missing = self.datastore.get_undownloaded_count()
-
-            if total_missing == 0:
+            self.total = self.datastore.get_undownloaded_count()
+            if self.total == 0:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
 
-            print(f"Found {total_missing:,} covers to download. Starting threads...")
+            print(f"Found {self.total:,} covers to download. Starting threads...")
 
             try:
-                with tqdm(total=total_missing, desc="Downloading images", unit="images") as self.pbar:
+                with tqdm(total=self.total, desc="Downloading images", unit="images") as self.pbar:
                     with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                         while True:
                             records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
-                            self.total = len(records_to_download)
 
                             if not records_to_download:
                                 break
@@ -211,14 +209,12 @@ class CAADownloader:
                                     # This block handles exceptions from the thread itself
                                     print(f"A download task generated an exception: {e}")
             except KeyboardInterrupt:
-                print("\nKeyboard interrupt received, shutting down theads. Press ^C again to shut down immediately.")
+                print("\nKeyboard interrupt received, shutting down threads. Press ^C again to shut down immediately.")
                 try:
-                    monitor.shutdown()
+                    print("wait threads")
                     for future in as_completed(future_to_record):
                         pass
                     print("threads joined")
-                    monitor.join()
-                    print("monitor joined")
                 except KeyboardInterrupt:
                     sys.exit(-1)
 
@@ -267,6 +263,11 @@ def main():
 
     downloader.run_downloader()
     print("Main thread exiting.")
+
+    print("join monitor")
+    downloader.shutdown()
+    downloader.join()
+    print("monitor joined")
 
 if __name__ == '__main__':
     main()

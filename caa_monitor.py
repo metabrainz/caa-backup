@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# monitor.py
 
 import threading
 import http.server
@@ -6,7 +7,19 @@ import json
 import socketserver
 import time
 
+# Define a default port for the web server to listen on.
 DEFAULT_PORT = 8000
+
+# Create a custom ThreadingTCPServer that can hold a reference to the downloader object.
+class CustomThreadingTCPServer(socketserver.ThreadingTCPServer):
+    """
+    A custom TCP server that allows passing a downloader instance to the
+    request handler. This is necessary because the standard server does not
+    provide a mechanism to pass custom arguments to the handler's constructor.
+    """
+    def __init__(self, server_address, RequestHandlerClass, downloader, bind_and_activate=True):
+        self.downloader = downloader
+        super().__init__(server_address, RequestHandlerClass, bind_and_activate)
 
 # The handler class that will process incoming HTTP requests.
 # It inherits from http.server.BaseHTTPRequestHandler to handle the requests.
@@ -14,6 +27,11 @@ class CAAServiceMonitorHandler(http.server.BaseHTTPRequestHandler):
     """
     A custom HTTP request handler for the CAAServiceMonitor web server.
     """
+    # Override the log_message method to prevent the server from printing
+    # a line for each request.
+    def log_message(self, format, *args):
+        pass
+
     def do_GET(self):
         """
         Handle GET requests. This method is called by the server for every GET request.
@@ -21,14 +39,19 @@ class CAAServiceMonitorHandler(http.server.BaseHTTPRequestHandler):
         # Check if the requested path is '/status'.
         if self.path == '/status':
             try:
-                response_data = self.downloader.stats()
+                # Access the downloader instance through the server object.
+                response_data = self.server.downloader.stats()
                 # Respond with a 200 OK status code.
                 self.send_response(200)
                 
-            except ImportError:
-                # If the caa_downloader module is not found, return an error.
+            except AttributeError:
+                # If the downloader or stats() method is not found, return an error.
                 self.send_response(500)
-                response_data = {"error": "caa_downloader module not found or stat() function is missing"}
+                response_data = {"error": "Downloader instance or stats() method is not available."}
+            except Exception as e:
+                # Catch any other exceptions during the stats call.
+                self.send_response(500)
+                response_data = {"error": f"An error occurred while getting stats: {str(e)}"}
                 
             # Set the Content-type header to 'application/json' so the client knows
             # to expect JSON data.
@@ -59,6 +82,7 @@ class CAAServiceMonitor(threading.Thread):
         Initialize the thread and the server parameters.
         
         Args:
+            downloader (object): An instance of the downloader service with a stats() method.
             host (str): The hostname to bind to.
             port (int): The port to listen on.
         """
@@ -66,11 +90,12 @@ class CAAServiceMonitor(threading.Thread):
         super().__init__()
         # Set the server address.
         self.server_address = (host, port)
-        # Create the HTTP server instance.
-        self.httpd = socketserver.TCPServer(self.server_address, CAAServiceMonitorHandler)
+        # Create the HTTP server instance using the custom server class.
+        # This is where we pass the downloader instance to the server.
+        self.httpd = CustomThreadingTCPServer(self.server_address, CAAServiceMonitorHandler, downloader)
         # A flag to control the shutdown of the server.
         self._is_running = True
-        self.downloader = downloader
+        self.downloader = downloader # This is now for potential use in other monitor methods.
 
     def run(self):
         """
