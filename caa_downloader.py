@@ -20,6 +20,9 @@ from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
+
+from caa_monitor import CAAServiceMonitor
 
 
 # -----------------------------------------------------------------------------
@@ -46,11 +49,25 @@ class CAADownloader:
         self.headers = {'User-Agent': 'Cover Art Archive Backup'}
         self.batch_size = batch_size
         self.download_threads = download_threads
+        self.total = 0
+        self.downloaded = 0
+        self.errors = 0
+        self.pbar = None
+        self.lock = Lock()
 
         # Ensure the base download directory exists
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
             print(f"Created base cache directory: {self.cache_dir}")
+
+    def status(self):
+        self.lock.acquire()
+        rate = self.pbar.format_dict.get("rate", 0.0)
+        self.lock.release()
+        return { "rate": rate,
+                 "total": self.total,
+                 "downloaded": self.downloaded,
+                 "errors": self.errors }
 
     def _download_and_save_record(self, record):
         """
@@ -147,7 +164,7 @@ class CAADownloader:
         Fetches records from the datastore that need downloading, then downloads
         and saves the corresponding images using a thread pool.
         """
-        print("Starting image download process...")
+        print("Starting cover art download ...")
 
         with self.datastore:
             total_missing = self.datastore.get_undownloaded_count()
@@ -156,38 +173,56 @@ class CAADownloader:
                 print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
 
-            print(f"Found {total_missing:,} records to download. Starting threads...")
+            print(f"Found {total_missing:,} covers to download. Starting threads...")
 
-            with tqdm(total=total_missing, desc="Downloading images", unit="images") as pbar:
-                with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
-                    while True:
-                        records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
+            try:
+                with tqdm(total=total_missing, desc="Downloading images", unit="images") as self.pbar:
+                    with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
+                        while True:
+                            records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
+                            self.total = len(records_to_download)
 
-                        if not records_to_download:
-                            break
+                            if not records_to_download:
+                                break
 
-                        # Submit download tasks to the thread pool
-                        future_to_record = {
-                            executor.submit(self._download_and_save_record, record): record
-                            for record in records_to_download
-                        }
+                            # Submit download tasks to the thread pool
+                            future_to_record = {
+                                executor.submit(self._download_and_save_record, record): record
+                                for record in records_to_download
+                            }
 
-                        # Process results as they become available
-                        for future in as_completed(future_to_record):
-                            try:
-                                # Get the result of the completed future
-                                result = future.result()
-                                # The result is (mbid, caa_id) or (None, None) if failed
-                                if result[0] is not None:
-                                    pbar.update(1)
-                                else:
-                                    # Log a failed download, the specific error is handled in _download_and_save_record
-                                    pass
-                            except Exception as e:
-                                # This block handles exceptions from the thread itself
-                                print(f"A download task generated an exception: {e}")
+                            # Process results as they become available
+                            for future in as_completed(future_to_record):
+                                try:
+                                    # Get the result of the completed future
+                                    result = future.result()
+                                    # The result is (mbid, caa_id) or (None, None) if failed
+                                    if result[0] is not None:
+                                        self.lock.acquire()
+                                        self.pbar.update(1)
+                                        self.downloaded += 1
+                                        self.lock.release()
+                                    else:
+                                        # Log a failed download, the specific error is handled in _download_and_save_record
+                                        self.lock.acquire()
+                                        self.errors += 1
+                                        self.lock.release()
+                                except Exception as e:
+                                    # This block handles exceptions from the thread itself
+                                    print(f"A download task generated an exception: {e}")
+            except KeyboardInterrupt:
+                print("\nKeyboard interrupt received, shutting down theads. Press ^C again to shut down immediately.")
+                try:
+                    monitor.shutdown()
+                    for future in as_completed(future_to_record):
+                        pass
+                    print("threads joined")
+                    monitor.join()
+                    print("monitor joined")
+                except KeyboardInterrupt:
+                    sys.exit(-1)
 
-            print("\nDownload process complete.")
+            print("\nDownload process complete, exiting...")
 
 
 # -----------------------------------------------------------------------------
@@ -205,6 +240,7 @@ def main():
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('CACHE_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
+    monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
 
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
@@ -225,8 +261,12 @@ def main():
         download_threads = 8
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
-    downloader.run_downloader()
 
+    monitor = CAAServiceMonitor(downloader=downloader, port=8080)
+    monitor.start()
+
+    downloader.run_downloader()
+    print("Main thread exiting.")
 
 if __name__ == '__main__':
     main()
