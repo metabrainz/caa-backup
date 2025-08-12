@@ -10,7 +10,7 @@ WORKDIR /code
 
 RUN pip3.13 install setuptools
 
-RUN mkdir /code/caa-backup
+RUN mkdir /code/caa-backup /data
 WORKDIR /code/caa-backup
 
 COPY requirements.txt .env /code/caa-backup

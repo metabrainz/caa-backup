@@ -24,7 +24,7 @@ Then edit .env according to your needs:
 
 * PG_CONN_STRING -- the postgres connection string for access to a MusicBrainz database
 * DB_PATH="caa_backup.db" -- the location where to store the local database file to keep track of progress.
-* CACHE_DIR="caa-backup" -- the cache directory where to store the downloaded files
+* BACKUP_DIR="caa-backup" -- the cache directory where to store the downloaded files
 * DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
 
 ## First run

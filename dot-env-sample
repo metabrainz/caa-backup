@@ -1,4 +1,4 @@
 PG_CONN_STRING="dbname=musicbrainz_db user=musicbrainz host=localhost password=musicbrainz"
 DB_PATH="caa_backup.db"
-CACHE_DIR="caa-cache"
+BACKUP_DIR="caa-cache"
 DOWNLOAD_THREADS=12

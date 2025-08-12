@@ -230,7 +230,7 @@ def main():
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('CACHE_DIR')
+    cache_dir = os.getenv('BACKUP_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
 
@@ -239,7 +239,7 @@ def main():
         return
 
     if not cache_dir:
-        click.echo("Error: CACHE_DIR environment variable is not set.", err=True)
+        click.echo("Error: BACKUP_DIR environment variable is not set.", err=True)
         return
 
     try:
@@ -252,8 +252,18 @@ def main():
         click.echo("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.", err=True)
         download_threads = 8
 
-    downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
+    # If we do not have a DB, we need to create it first        
+    if not os.path.exists(db_path):
+        import caa_importer
 
+        importer = CAAImporter(
+            pg_conn_string=pg_conn_string,
+            db_path=db_path,
+            batch_size=1000
+        )
+        importer.run_import()
+
+    downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
     monitor = CAAServiceMonitor(downloader=downloader, port=8080)
     monitor.start()
 
