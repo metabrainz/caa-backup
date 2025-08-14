@@ -227,30 +227,38 @@ def main():
     Script to download missing cover art from a remote server.
     Configuration is read from a .env file.
     """
+
+
     # Load environment variables from a .env file
-    load_dotenv()
+#    load_dotenv()
 
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('BACKUP_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
 
+    print("Downloader starting, removing DB file.")
+    try:
+        os.unlink(db_path)
+    except Exception:
+        pass
+
     if not db_path:
-        click.echo("Error: DB_PATH environment variable is not set.", err=True)
+        print("Error: DB_PATH environment variable is not set.")
         return
 
     if not cache_dir:
-        click.echo("Error: BACKUP_DIR environment variable is not set.", err=True)
+        print("Error: BACKUP_DIR environment variable is not set.")
         return
 
     try:
         download_threads = int(download_threads)
     except ValueError:
-        click.echo("Warning: DOWNLOAD_THREADS must be an integer. Defaulting to 8.", err=True)
+        print("Warning: DOWNLOAD_THREADS must be an integer. Defaulting to 8.")
         download_threads = 8
 
     if download_threads <= 0:
-        click.echo("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.", err=True)
+        print("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
 
     print("Current config")
@@ -260,17 +268,22 @@ def main():
 
     # If we do not have a DB, we need to create it first        
     if not os.path.exists(db_path):
+        print("mip")
         import caa_importer
-
-        from time import sleep
-        sleep(100)
+        print("no DB found, running importer")
+        try:
+            import consul_config
+        except ImportError:
+            print("Error: '%s' does not exist, cannot proceed.")
+            sys.exit(-1)
 
         importer = CAAImporter(
-            pg_conn_string=pg_conn_string,
+            pg_conn_string=consul_config.PG_CONN_STRING,
             db_path=db_path,
             batch_size=1000
         )
         importer.run_import()
+        print("importer completed.")
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
     monitor = CAAServiceMonitor(downloader=downloader, port=8080)
