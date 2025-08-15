@@ -8,7 +8,10 @@
 import peewee
 import enum
 import time
+import logging
 from typing import List, Tuple
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 # Define a constant for the database retry delay
 DB_RETRY_DELAY_SECONDS = 1
@@ -111,20 +114,18 @@ class CAABackupDataStore:
             self.db.connect()
             # Create the main backup table
             if not self.model.table_exists():
-                print("Creating table 'caa_backup'...")
+                logging.info("Creating table 'caa_backup'...")
                 self.model.create_table(safe=True)
             else:
-                print("Table 'caa_backup' already exists.")
-            
+                logging.info("Table 'caa_backup' already exists.")
             # Create the import timestamp table
             if not ImportTimestamp.table_exists():
-                print("Creating table 'import_timestamp'...")
+                logging.info("Creating table 'import_timestamp'...")
                 ImportTimestamp.create_table(safe=True)
             else:
-                print("Table 'import_timestamp' already exists.")
-                
+                logging.info("Table 'import_timestamp' already exists.")
         except peewee.OperationalError as e:
-            print(f"Database error: {e}")
+            logging.error(f"Database error: {e}")
         finally:
             self.db.close()
 
@@ -139,9 +140,9 @@ class CAABackupDataStore:
                     mime_type=mime_type,
                     error=error
                 )
-            print(f"Successfully added record for CAA ID: {caa_id}")
+            logging.info(f"Successfully added record for CAA ID: {caa_id}")
         except peewee.IntegrityError:
-            print(f"Error: A record with CAA ID {caa_id} already exists.")
+            logging.error(f"Error: A record with CAA ID {caa_id} already exists.")
 
     def bulk_add(self, records: list):
         """
@@ -153,7 +154,7 @@ class CAABackupDataStore:
                             a CoverStatus enum member.
         """
         if not records:
-            print("No records to add.")
+            logging.info("No records to add.")
             return
 
         # Convert enum status to integer value and include mime_type and date_uploaded
@@ -170,7 +171,7 @@ class CAABackupDataStore:
             with self.db.atomic():
                 self.model.insert_many(records_for_db).execute()
         except peewee.IntegrityError:
-            print("Error: One or more records in the list already exist.")
+            logging.error("Error: One or more records in the list already exist.")
 
     def get(self, caa_id: int):
         """Retrieves a single record by its CAA ID."""
@@ -178,7 +179,7 @@ class CAABackupDataStore:
             try:
                 return self.model.get_or_none(self.model.caa_id == caa_id)
             except peewee.OperationalError as e:
-                print(f"Database error: {e}")
+                logging.error(f"Database error: {e}")
                 return None
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
@@ -200,7 +201,7 @@ class CAABackupDataStore:
                     self.model.status == status.value
                 ).order_by(self.model.release_mbid).limit(count)
             except peewee.OperationalError as e:
-                print(f"Database error: {e}")
+                logging.error(f"Database error: {e}")
                 return []
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
@@ -219,7 +220,7 @@ class CAABackupDataStore:
                 record.save()
                 return
             except self.model.DoesNotExist:
-                print(f"Error: Record with CAA ID {caa_id} not found.")
+                logging.error(f"Error: Record with CAA ID {caa_id} not found.")
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)

@@ -14,12 +14,17 @@ import os
 import peewee
 import sys
 from datetime import datetime
-
+import time
 import psycopg2
 import click
+import logging
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
-from tqdm import tqdm
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+
+# Log progress every N seconds
+IMPORT_PROGRESS_INTERVAL = 10
 
 # -----------------------------------------------------------------------------
 # The main class for the import project.
@@ -29,7 +34,7 @@ class CAAImporter:
     A class to handle importing data from a PostgreSQL database into
     a local SQLite data store.
     """
-    def __init__(self, pg_conn_string: str, db_path: str, batch_size: int = 100000):
+    def __init__(self, pg_conn_string: str, db_path: str, batch_size: int = 20000):
         """
         Initializes the importer with a PostgreSQL connection string.
 
@@ -48,13 +53,13 @@ class CAAImporter:
         Establishes a connection to the PostgreSQL database.
         Returns the connection object if successful, otherwise None.
         """
-        print("Connecting to PostgreSQL...")
+        logging.info("Connecting to PostgreSQL...")
         try:
             self.pg_conn = psycopg2.connect(self.pg_conn_string)
-            print("Successfully connected to PostgreSQL.")
+            logging.info("Successfully connected to PostgreSQL.")
             return self.pg_conn
         except psycopg2.Error as e:
-            print(f"PostgreSQL connection error: {e}")
+            logging.error(f"PostgreSQL connection error: {e}")
             return None
 
     def get_caa_records(self, cursor: psycopg2.extensions.cursor):
@@ -123,14 +128,14 @@ class CAAImporter:
         Connects to a PostgreSQL database, queries data, and imports it
         into the CAABackupDataStore in batches with a progress bar.
         """
-        print("Starting import process...")
+        logging.info("Starting import process...")
         
         # Initialize the data store's table
         self.datastore.create()
         
         # Connect to PostgreSQL once
         if not self.connect_to_postgres():
-            print("Import failed due to database connection error.")
+            logging.error("Import failed due to database connection error.")
             return
 
         try:
@@ -151,70 +156,72 @@ class CAAImporter:
                                  JOIN musicbrainz.release r
                                    ON caa.release = r.id
                              ORDER BY r.gid"""
-                print(f"Executing query to fetch data...")
+                logging.info(f"Executing query to fetch data...")
                 cursor.execute(data_query)
 
                 # Open the datastore connection once for the entire import process.
                 with self.datastore:
                     total_imported = 0
-                    # Initialize the progress bar with the total count
-                    with tqdm(total=total_records, desc="Importing records", unit="records") as pbar:
-                        while True:
-                            # Fetch a batch of records from the cursor
-                            records = self.get_caa_records(cursor)
+                    start_time = time.time()
+                    last_log = start_time
+                    while True:
+                        # Fetch a batch of records from the cursor
+                        records = self.get_caa_records(cursor)
 
-                            if not records:
-                                break
+                        if not records:
+                            break
 
-                            # Use the datastore's `bulk_add` function
-                            self.datastore.bulk_add(records)
+                        # Use the datastore's `bulk_add` function
+                        self.datastore.bulk_add(records)
+                        total_imported += len(records)
 
-                            # Update the progress bar
-                            pbar.update(len(records))
-                            total_imported += len(records)
+                        now = time.time()
+                        if now - last_log >= IMPORT_PROGRESS_INTERVAL:
+                            logging.info(f"Imported: {total_imported} / {total_records}")
+                            last_log = now
 
-            print(f"\nImport process complete. Total records imported: {total_imported}")
+            logging.info(f"Import process complete. Total records imported: {total_imported}")
 
             # After import, update the import timestamp using the latest date_uploaded from Postgres
             latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
             if latest_ts:
                 self.datastore.update_import_timestamp(latest_ts)
-                print(f"Updated import timestamp to: {latest_ts}")
+                logging.info(f"Updated import timestamp to: {latest_ts}")
             else:
-                print("Warning: Could not fetch latest date_uploaded from Postgres.")
+                logging.warning("Could not fetch latest date_uploaded from Postgres.")
 
         except psycopg2.Error as e:
-            print(f"PostgreSQL query error: {e}")
+            logging.error(f"PostgreSQL query error: {e}")
         finally:
             if self.pg_conn:
                 self.pg_conn.close()
-                print("PostgreSQL connection closed.")
+                logging.info("PostgreSQL connection closed.")
 
     def run_import_incremental(self):
         """
         Connects to a PostgreSQL database and imports only new records based on
         the date_uploaded timestamp. Updates the local timestamp after successful import.
         """
-        print("Starting incremental import process...")
+        logging.info("Starting incremental import process...")
         
         # Initialize the data store's table
         self.datastore.create()
         
         # Connect to PostgreSQL once
         if not self.connect_to_postgres():
-            print("Incremental import failed due to database connection error.")
+            logging.error("Incremental import failed due to database connection error.")
             return
 
         try:
             with self.datastore:
                 # Get the last import timestamp
                 last_import_date = self.datastore.get_last_import_timestamp()
-                
+
                 if last_import_date:
-                    print(f"Last import was at: {last_import_date}")
-                    print("Fetching records uploaded since then...")
+                    logging.info(f"Last import was at: {last_import_date}")
+                    logging.info("Fetching records uploaded since then...")
                 else:
-                    print("No previous import found, importing all records...")
+                    logging.info("No previous import found, importing all records...")
 
                 # Build the query with date filter if we have a last import date
                 if last_import_date:
@@ -249,46 +256,47 @@ class CAAImporter:
                 with self.pg_conn.cursor() as cursor:
                     cursor.execute(count_query, query_params)
                     total_records = cursor.fetchone()[0]
-                    
+                
                 if total_records == 0:
-                    print("No new records found to import.")
+                    logging.info("No new records found to import.")
                     return
-                    
-                print(f"Found {total_records:,} new records to import.")
+                
+                logging.info(f"Found {total_records:,} new records to import.")
                 
                 # Use a new cursor for the main data query
                 with self.pg_conn.cursor() as cursor:
-                    print(f"Executing query to fetch new data...")
+                    logging.info(f"Executing query to fetch new data...")
                     cursor.execute(data_query, query_params)
 
                     total_imported = 0
                     latest_date_uploaded = None
-                    
-                    # Initialize the progress bar with the total count
-                    with tqdm(total=total_records, desc="Importing new records", unit="records") as pbar:
-                        while True:
-                            # Fetch a batch of records from the cursor
-                            records = self.get_caa_records_with_date(cursor)
+                    start_time = time.time()
+                    last_log = start_time
+                    while True:
+                        # Fetch a batch of records from the cursor
+                        records = self.get_caa_records_with_date(cursor)
 
-                            if not records:
-                                break
+                        if not records:
+                            break
 
-                            # Track the latest date_uploaded for updating our timestamp
-                            for record in records:
-                                if record['date_uploaded']:
-                                    if latest_date_uploaded is None or record['date_uploaded'] > latest_date_uploaded:
-                                        latest_date_uploaded = record['date_uploaded']
+                        # Track the latest date_uploaded for updating our timestamp
+                        for record in records:
+                            if record['date_uploaded']:
+                                if latest_date_uploaded is None or record['date_uploaded'] > latest_date_uploaded:
+                                    latest_date_uploaded = record['date_uploaded']
 
-                            # Use the datastore's `bulk_add` function
-                            try:
-                                self.datastore.bulk_add(records)
-                                total_imported += len(records)
-                            except Exception as e:
-                                print(f"Error adding batch: {e}")
-                                # Continue with next batch instead of stopping
-                            
-                            # Update the progress bar
-                            pbar.update(len(records))
+                        # Use the datastore's `bulk_add` function
+                        try:
+                            self.datastore.bulk_add(records)
+                            total_imported += len(records)
+                        except Exception as e:
+                            logging.error(f"Error adding batch: {e}")
+                            # Continue with next batch instead of stopping
+
+                        now = time.time()
+                        if now - last_log >= IMPORT_PROGRESS_INTERVAL:
+                            logging.info(f"Imported: {total_imported} / {total_records}")
+                            last_log = now
 
                     # Update the import timestamp if we imported any records
                     if total_imported > 0:
@@ -296,9 +304,9 @@ class CAAImporter:
                         latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
                         if latest_ts:
                             self.datastore.update_import_timestamp(latest_ts)
-                            print(f"Updated import timestamp to: {latest_ts}")
+                            logging.info(f"Updated import timestamp to: {latest_ts}")
                         else:
-                            print("Warning: Could not fetch latest date_uploaded from Postgres.")
+                            logging.warning("Could not fetch latest date_uploaded from Postgres.")
                     print(f"\nIncremental import complete. New records imported: {total_imported}")
 
         except psycopg2.Error as e:

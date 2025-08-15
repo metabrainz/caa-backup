@@ -19,7 +19,7 @@ import time
 import sys
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
-from tqdm import tqdm
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
@@ -27,8 +27,11 @@ from threading import Lock
 from caa_monitor import CAAServiceMonitor
 from caa_importer import CAAImporter
 
+
 # How often to check for new images (in seconds)
 UPDATE_FREQUENCY = 3600  # 1 hour
+# How often to log download progress (in seconds)
+DOWNLOAD_PROGRESS_INTERVAL = 10
 
 
 # -----------------------------------------------------------------------------
@@ -58,22 +61,21 @@ class CAADownloader:
         self.total = 0
         self.downloaded = 0
         self.errors = 0
-        self.pbar = None
+        self.pbar = None  # No longer used
         self.lock = Lock()
 
         # Ensure the base download directory exists
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
-            print(f"Created base cache directory: {self.cache_dir}")
+            logging.info(f"Created base cache directory: {self.cache_dir}")
 
     def stats(self):
-        self.lock.acquire()
-        rate = self.pbar.format_dict.get("rate", 0.0)
-        self.lock.release()
-        return { "download_rate": rate,
-                 "total_to_download": self.total,
-                 "downloaded": self.downloaded,
-                 "download_errors": self.errors }
+        # No rate tracking now
+        return {
+            "total_to_download": self.total,
+            "downloaded": self.downloaded,
+            "download_errors": self.errors
+        }
 
     def _download_and_save_record(self, record):
         """
@@ -88,7 +90,7 @@ class CAADownloader:
             release_mbid = record.release_mbid
             caa_id = record.caa_id
         except AttributeError as e:
-            print(f"Error: A record object is missing a required attribute: {e}")
+            logging.error(f"A record object is missing a required attribute: {e}")
             return None, None
 
         # The mime_type attribute is also expected for correct file extension.
@@ -133,7 +135,7 @@ class CAADownloader:
                 if 400 <= e.response.status_code < 500:
                     status = CoverStatus.PERMANENT_ERROR
                     error = str(e)
-                    print(str(e))
+                    logging.error(str(e))
                 else:  # 5xx server errors
                     status = CoverStatus.TEMP_ERROR
                     error = str(e)
@@ -144,6 +146,7 @@ class CAADownloader:
                 # Handle other request exceptions like timeouts
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
+                logging.error(str(e))
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
                 return None, None  # Don't retry, just return
 
@@ -155,6 +158,7 @@ class CAADownloader:
                     retries += 1
                     time.sleep(0.1 * retries)  # Exponential backoff
                 else:
+                    logging.error(str(e))
                     self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
                     return None, None
 
@@ -170,54 +174,59 @@ class CAADownloader:
         Fetches records from the datastore that need downloading, then downloads
         and saves the corresponding images using a thread pool.
         """
-        print("Starting cover art download ...")
+
+        logging.info("Starting cover art download ...")
+
 
         with self.datastore:
             self.total = self.datastore.get_undownloaded_count()
             if self.total == 0:
-                print("No records found with 'NOT_DOWNLOADED' status. Exiting.")
+                logging.info("No records found with 'NOT_DOWNLOADED' status. Exiting.")
                 return
 
-            print(f"Found {self.total:,} covers to download. Starting threads...")
+            logging.info(f"Found {self.total:,} covers to download. Starting threads...")
 
             try:
-                with tqdm(total=self.total, desc="Downloading images", unit="images") as self.pbar:
-                    with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
-                        while True:
-                            records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
+                with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
+                    total_to_download = self.total
+                    downloaded = 0
+                    errors = 0
+                    start_time = time.time()
+                    last_log = start_time
+                    while True:
+                        records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
 
-                            if not records_to_download:
-                                break
+                        if not records_to_download:
+                            break
 
-                            # Submit download tasks to the thread pool
-                            future_to_record = {
-                                executor.submit(self._download_and_save_record, record): record
-                                for record in records_to_download
-                            }
+                        # Submit download tasks to the thread pool
+                        future_to_record = {
+                            executor.submit(self._download_and_save_record, record): record
+                            for record in records_to_download
+                        }
 
-                            # Process results as they become available
-                            for future in as_completed(future_to_record):
-                                try:
-                                    # Get the result of the completed future
-                                    result = future.result()
-                                    # The result is (mbid, caa_id) or (None, None) if failed
-                                    if result[0] is not None:
-                                        self.lock.acquire()
-                                        self.pbar.update(1)
-                                        self.downloaded += 1
-                                        self.lock.release()
-                                    else:
-                                        # Log a failed download, the specific error is handled in _download_and_save_record
-                                        self.lock.acquire()
-                                        self.errors += 1
-                                        self.lock.release()
-                                except Exception as e:
-                                    # This block handles exceptions from the thread itself
-                                    print(f"A download task generated an exception: {e}")
+                        # Process results as they become available
+                        for future in as_completed(future_to_record):
+                            try:
+                                result = future.result()
+                                if result[0] is not None:
+                                    downloaded += 1
+                                else:
+                                    errors += 1
+                            except Exception as e:
+                                logging.error(f"A download task generated an exception: {e}")
+
+                            now = time.time()
+                            if now - last_log >= DOWNLOAD_PROGRESS_INTERVAL:
+                                logging.info(f"Downloaded: {downloaded} / {total_to_download} (Errors: {errors})")
+                                last_log = now
+
+                    # Final progress log
+                    logging.info(f"Downloaded: {downloaded} / {total_to_download} (Errors: {errors})")
             except KeyboardInterrupt:
                 pass
 
-            print("\nDownload process complete, exiting...")
+            logging.info("Download process complete, exiting...")
             return
 
 
@@ -261,31 +270,32 @@ def main():
         print("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
 
-    print("Current config")
-    print("  db_path: %s" % db_path)
-    print("  cache_dir: %s" % cache_dir)
-    print("  threads: %d" % download_threads)
+
+    logging.info("Current config")
+    logging.info("  db_path: %s" % db_path)
+    logging.info("  cache_dir: %s" % cache_dir)
+    logging.info("  threads: %d" % download_threads)
 
     if not os.path.exists(db_path):
-        print("No database was found. Running caa_importer to create and populate the DB...")
+        logging.info("No database was found. Running caa_importer to create and populate the DB...")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import()
-        print("Database created and populated. Proceeding to download.")
+    logging.info("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
     monitor = CAAServiceMonitor(downloader=downloader, port=monitor_port)
     monitor.start()
 
-    print("\n--- Starting download cycle ---")
+    logging.info("--- Starting download cycle ---")
     downloader.run_downloader()
     while True:
         cycle_start = time.time()
 
-        print("--- Running incremental import to fetch new rows ---")
+        logging.info("--- Running incremental import to fetch new rows ---")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import_incremental()
 
-        print("--- Downloading any new images from incremental import ---")
+        logging.info("--- Downloading any new images from incremental import ---")
         downloader.run_downloader()
 
         cycle_end = time.time()
@@ -294,10 +304,10 @@ def main():
         next_cycle = ((int(now) // UPDATE_FREQUENCY) + 1) * UPDATE_FREQUENCY
         sleep_time = max(0, next_cycle - now) if elapsed < UPDATE_FREQUENCY else 0
         if sleep_time > 0:
-            print(f"Cycle finished early, sleeping {int(sleep_time)} seconds until the next update...")
+            logging.info(f"Cycle finished early, sleeping {int(sleep_time)} seconds until the next update...")
             time.sleep(sleep_time)
         else:
-            print("Cycle took longer than the update frequency, starting next cycle immediately.")
+            logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
 if __name__ == '__main__':
     main()
