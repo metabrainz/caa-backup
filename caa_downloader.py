@@ -23,8 +23,12 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
+
 from caa_monitor import CAAServiceMonitor
 from caa_importer import CAAImporter
+
+# How often to check for new images (in seconds)
+UPDATE_FREQUENCY = 3600  # 1 hour
 
 
 # -----------------------------------------------------------------------------
@@ -214,7 +218,7 @@ class CAADownloader:
                 pass
 
             print("\nDownload process complete, exiting...")
-            os._exit(-1)
+            return
 
 
 
@@ -222,26 +226,30 @@ class CAADownloader:
 # Main entry point for the script
 # -----------------------------------------------------------------------------
 @click.command()
+
 def main():
     """
     Script to download missing cover art from a remote server.
     Configuration is read from a .env file.
+    This version runs in a loop: download, incremental import, download new, sleep until next hour.
     """
 
-    # Load environment variables from a .env file
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('CACHE_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
+    pg_conn_string = os.getenv('PG_CONN_STRING')
 
     if not db_path:
         print("Error: DB_PATH environment variable is not set.")
         return
-
     if not cache_dir:
         print("Error: CACHE_DIR environment variable is not set.")
+        return
+    if not pg_conn_string:
+        print("Error: PG_CONN_STRING environment variable is not set.")
         return
 
     try:
@@ -249,7 +257,6 @@ def main():
     except ValueError:
         print("Warning: DOWNLOAD_THREADS must be an integer. Defaulting to 8.")
         download_threads = 8
-
     if download_threads <= 0:
         print("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
@@ -259,16 +266,38 @@ def main():
     print("  cache_dir: %s" % cache_dir)
     print("  threads: %d" % download_threads)
 
-    # If we do not have a DB, we need to create it first        
     if not os.path.exists(db_path):
-        print("No database was found. Run caa_importer first.")
-        return
+        print("No database was found. Running caa_importer to create and populate the DB...")
+        importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
+        importer.run_import()
+        print("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
-    monitor = CAAServiceMonitor(downloader=downloader, port=8080)
+    monitor = CAAServiceMonitor(downloader=downloader, port=monitor_port)
     monitor.start()
 
+    print("\n--- Starting download cycle ---")
     downloader.run_downloader()
+    while True:
+        cycle_start = time.time()
+
+        print("--- Running incremental import to fetch new rows ---")
+        importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
+        importer.run_import_incremental()
+
+        print("--- Downloading any new images from incremental import ---")
+        downloader.run_downloader()
+
+        cycle_end = time.time()
+        elapsed = cycle_end - cycle_start
+        now = time.time()
+        next_cycle = ((int(now) // UPDATE_FREQUENCY) + 1) * UPDATE_FREQUENCY
+        sleep_time = max(0, next_cycle - now) if elapsed < UPDATE_FREQUENCY else 0
+        if sleep_time > 0:
+            print(f"Cycle finished early, sleeping {int(sleep_time)} seconds until the next update...")
+            time.sleep(sleep_time)
+        else:
+            print("Cycle took longer than the update frequency, starting next cycle immediately.")
 
 if __name__ == '__main__':
     main()
