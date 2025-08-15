@@ -228,20 +228,13 @@ def main():
     Configuration is read from a .env file.
     """
 
-
     # Load environment variables from a .env file
-#    load_dotenv()
+    load_dotenv()
 
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('BACKUP_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
-
-    print("Downloader starting, removing DB file.")
-    try:
-        os.unlink(db_path)
-    except Exception:
-        pass
 
     if not db_path:
         print("Error: DB_PATH environment variable is not set.")
@@ -268,22 +261,8 @@ def main():
 
     # If we do not have a DB, we need to create it first        
     if not os.path.exists(db_path):
-        print("mip")
-        import caa_importer
-        print("no DB found, running importer")
-        try:
-            import consul_config
-        except ImportError:
-            print("Error: '%s' does not exist, cannot proceed.")
-            sys.exit(-1)
-
-        importer = CAAImporter(
-            pg_conn_string=consul_config.PG_CONN_STRING,
-            db_path=db_path,
-            batch_size=1000
-        )
-        importer.run_import()
-        print("importer completed.")
+        print("No database was found. Run caa_importer first.")
+        return
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
     monitor = CAAServiceMonitor(downloader=downloader, port=8080)

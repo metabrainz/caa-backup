@@ -172,7 +172,15 @@ def main():
     if os.path.exists(db_path):
         print("The DB file %s exists. Please remove it before running this command.")
         sys.exit(-1)
-    
+
+    try:
+        import consul_config
+
+        if consul_config.PG_CONN_STTRING:
+            pg_conn_string = consul_config.PG_CONN_STRING
+    except ImportError:
+        pass
+
     # Ensure environment variables are set
     if not pg_conn_string:
         click.echo("Error: PG_CONN_STRING environment variable is not set.", err=True)
@@ -181,14 +189,13 @@ def main():
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         return
-        
+
     importer = CAAImporter(
         pg_conn_string=pg_conn_string,
         db_path=db_path,
         batch_size=1000
     )
     importer.run_import()
-
 
 if __name__ == '__main__':
     main()
