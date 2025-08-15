@@ -232,7 +232,7 @@ def main():
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('BACKUP_DIR')
+    cache_dir = os.getenv('CACHE_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
 
@@ -241,7 +241,7 @@ def main():
         return
 
     if not cache_dir:
-        print("Error: BACKUP_DIR environment variable is not set.")
+        print("Error: CACHE_DIR environment variable is not set.")
         return
 
     try:

@@ -334,6 +334,7 @@ def main(incremental):
 
         if hasattr(consul_config, 'PG_CONN_STRING') and consul_config.PG_CONN_STRING:
             pg_conn_string = consul_config.PG_CONN_STRING
+            print("pg conn string: '%s'" % pg_conn_string)
     except ImportError:
         pass
 
