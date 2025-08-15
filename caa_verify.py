@@ -115,14 +115,14 @@ def main():
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('BACKUP_DIR')
+    cache_dir = os.getenv('CACHE_DIR')
 
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         return
 
     if not cache_dir:
-        click.echo("Error: BACKUP_DIR environment variable is not set.", err=True)
+        click.echo("Error: CACHE_DIR environment variable is not set.", err=True)
         return
 
     verifier = CAAVerifier(db_path=db_path, cache_dir=cache_dir)

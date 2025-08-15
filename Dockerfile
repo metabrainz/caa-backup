@@ -23,4 +23,4 @@ COPY . /code/caa-backup
 COPY ./docker/consul-template.conf /etc/consul-template.conf
 
 # Lets not start a service, but lets run commands via cron eventally.
-# COPY ./docker/caa-backup.service /etc/service/caa-backup/run
+COPY ./docker/caa-backup.service /etc/service/caa-backup/run
