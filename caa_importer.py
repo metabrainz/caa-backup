@@ -29,7 +29,7 @@ class CAAImporter:
     A class to handle importing data from a PostgreSQL database into
     a local SQLite data store.
     """
-    def __init__(self, pg_conn_string: str, db_path: str, batch_size: int = 1000):
+    def __init__(self, pg_conn_string: str, db_path: str, batch_size: int = 100000):
         """
         Initializes the importer with a PostgreSQL connection string.
 
