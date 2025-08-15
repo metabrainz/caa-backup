@@ -41,12 +41,15 @@ def cli():
 @cli.command()
 @click.option('--batch-size', default=1000, type=int, help='Number of records to process per batch (default: 1000)')
 @click.option('--force', is_flag=True, help='Force import even if database file exists')
-def import_data(batch_size, force):
+@click.option('--incremental', is_flag=True, help='Run incremental import (fetch only new records since last import)')
+def import_data(batch_size, force, incremental):
     """
     Import data from PostgreSQL database into local SQLite datastore.
     
     This command connects to the PostgreSQL database specified in your .env file
     and imports cover art metadata into a local SQLite database for faster processing.
+    
+    Use --incremental to import only records uploaded since the last import.
     """
     pg_conn_string = os.getenv('PG_CONN_STRING')
     db_path = os.getenv('DB_PATH')
@@ -55,6 +58,7 @@ def import_data(batch_size, force):
     click.echo(f"  PostgreSQL: {pg_conn_string}")
     click.echo(f"  Database: {db_path}")
     click.echo(f"  Batch size: {batch_size}")
+    click.echo(f"  Incremental: {incremental}")
     
     if not pg_conn_string:
         click.echo("Error: PG_CONN_STRING environment variable is not set.", err=True)
@@ -64,15 +68,23 @@ def import_data(batch_size, force):
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         sys.exit(1)
     
-    # Check if database already exists
-    if os.path.exists(db_path) and not force:
-        click.echo(f"Error: Database file '{db_path}' already exists.", err=True)
-        click.echo("Use --force to overwrite or remove the file manually.", err=True)
-        sys.exit(1)
-    
-    if force and os.path.exists(db_path):
-        click.echo(f"Removing existing database file: {db_path}")
-        os.remove(db_path)
+    # Check conditions based on import type
+    if incremental:
+        # For incremental import, database should exist
+        if not os.path.exists(db_path):
+            click.echo(f"Error: Database file '{db_path}' not found for incremental import.", err=True)
+            click.echo("Run a full import first (without --incremental flag).", err=True)
+            sys.exit(1)
+    else:
+        # For full import, check if database already exists
+        if os.path.exists(db_path) and not force:
+            click.echo(f"Error: Database file '{db_path}' already exists.", err=True)
+            click.echo("Use --force to overwrite, --incremental to update, or remove the file manually.", err=True)
+            sys.exit(1)
+        
+        if force and os.path.exists(db_path):
+            click.echo(f"Removing existing database file: {db_path}")
+            os.remove(db_path)
     
     try:
         # Try to import consul_config if available
@@ -90,7 +102,12 @@ def import_data(batch_size, force):
     )
     
     try:
-        importer.run_import()
+        if incremental:
+            click.echo("Running incremental import...")
+            importer.run_import_incremental()
+        else:
+            click.echo("Running full import...")
+            importer.run_import()
         click.echo("Import completed successfully!")
     except Exception as e:
         click.echo(f"Import failed: {e}", err=True)
@@ -281,6 +298,14 @@ def status():
             from store import CAABackupDataStore
             with CAABackupDataStore(db_path) as datastore:
                 click.echo("\n=== Database Statistics ===")
+                
+                # Show last import timestamp
+                last_import = datastore.get_last_import_timestamp()
+                if last_import:
+                    click.echo(f"Last import: {last_import}")
+                else:
+                    click.echo("Last import: Never")
+                
                 status_counts = datastore.get_status_counts()
                 total_records = sum(status_counts.values())
                 click.echo(f"Total records: {total_records:,}")

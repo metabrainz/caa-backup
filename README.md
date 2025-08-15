@@ -59,6 +59,7 @@ python manage.py monitor --port 8080
 - `import-data`: Import from PostgreSQL to SQLite
   - `--batch-size INTEGER`: Records per batch (default: 1000)
   - `--force`: Overwrite existing database
+  - `--incremental`: Import only new records since last import
 
 - `download`: Download cover art images
   - `--threads INTEGER`: Download threads (default: 8)
@@ -80,7 +81,12 @@ python manage.py monitor --port 8080
 ## Subsequent runs
 
 To keep the backup up-to-date:
-1. Re-import data: `python manage.py import-data --force`
+1. Update with new records: `python manage.py import-data --incremental`
+2. Verify existing files: `python manage.py verify`
+3. Download new files: `python manage.py download`
+
+Alternatively, for a complete refresh:
+1. Re-import all data: `python manage.py import-data --force`
 2. Verify existing files: `python manage.py verify`
 3. Download new files: `python manage.py download`
 

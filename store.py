@@ -37,12 +37,14 @@ class CAABackup(peewee.Model):
     - status: The current status of the backup.
     - error: An optional text field to store error messages if the backup fails.
     - mime_type: The MIME type of the cover art image.
+    - date_uploaded: The timestamp when the image was uploaded to CAA.
     """
     caa_id = peewee.BigIntegerField(primary_key=True, null=False)
     release_mbid = peewee.TextField(null=False)
     status = peewee.IntegerField(null=False)
     error = peewee.TextField(null=True)
     mime_type = peewee.TextField(null=True)  # New field to store MIME type
+    date_uploaded = peewee.DateTimeField(null=True)  # New field for upload timestamp
 
     class Meta:
         database = db  # This tells the model which database to use
@@ -52,6 +54,21 @@ class CAABackup(peewee.Model):
     def status_enum(self):
         """Returns the status as a CoverStatus enum member."""
         return CoverStatus(self.status)
+
+class ImportTimestamp(peewee.Model):
+    """
+    Represents the 'import_timestamp' table to track the last import operation.
+    
+    Fields:
+    - id: Primary key (auto-increment).
+    - last_import_date: The timestamp of the last successful import.
+    """
+    id = peewee.AutoField(primary_key=True)
+    last_import_date = peewee.DateTimeField(null=False)
+    
+    class Meta:
+        database = db
+        table_name = 'import_timestamp'
 
 # -----------------------------------------------------------------------------
 # The main class for the data store project.
@@ -73,15 +90,24 @@ class CAABackupDataStore:
 
     def create(self):
         """
-        Connects to the database and creates the table if it does not exist.
+        Connects to the database and creates the tables if they do not exist.
         """
         try:
             self.db.connect()
+            # Create the main backup table
             if not self.model.table_exists():
                 print("Creating table 'caa_backup'...")
                 self.model.create_table(safe=True)
             else:
                 print("Table 'caa_backup' already exists.")
+            
+            # Create the import timestamp table
+            if not ImportTimestamp.table_exists():
+                print("Creating table 'import_timestamp'...")
+                ImportTimestamp.create_table(safe=True)
+            else:
+                print("Table 'import_timestamp' already exists.")
+                
         except peewee.OperationalError as e:
             print(f"Database error: {e}")
         finally:
@@ -115,12 +141,13 @@ class CAABackupDataStore:
             print("No records to add.")
             return
 
-        # Convert enum status to integer value and include mime_type
+        # Convert enum status to integer value and include mime_type and date_uploaded
         records_for_db = [{
             'caa_id': r['caa_id'],
             'release_mbid': r['release_mbid'],
             'status': r['status'].value,
             'mime_type': r['mime_type'],
+            'date_uploaded': r.get('date_uploaded'),
             'error': r.get('error')
         } for r in records]
 
@@ -277,6 +304,41 @@ class CAABackupDataStore:
                         continue
                     raise err
         return counts
+
+    def get_last_import_timestamp(self):
+        """
+        Retrieves the timestamp of the last successful import.
+        Returns:
+            datetime: The timestamp of the last import, or None if no imports have been done.
+        """
+        while True:
+            try:
+                last_record = ImportTimestamp.select().order_by(ImportTimestamp.last_import_date.desc()).first()
+                return last_record.last_import_date if last_record else None
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
+                    continue
+                raise err
+
+    def update_import_timestamp(self, timestamp):
+        """
+        Updates the import timestamp to record the last successful import.
+        Args:
+            timestamp (datetime): The timestamp to record.
+        """
+        while True:
+            try:
+                with self.db.atomic():
+                    # Delete old timestamps and insert the new one
+                    ImportTimestamp.delete().execute()
+                    ImportTimestamp.create(last_import_date=timestamp)
+                return
+            except peewee.OperationalError as err:
+                if "database is locked" in str(err):
+                    time.sleep(DB_RETRY_DELAY_SECONDS)
+                    continue
+                raise err
 
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
