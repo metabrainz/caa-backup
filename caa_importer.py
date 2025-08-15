@@ -142,7 +142,7 @@ class CAAImporter:
                                    ON caa.release = r.id"""
                 cursor.execute(count_query)
                 total_records = cursor.fetchone()[0]
-            
+
             # Use a new cursor for the main data query
             with self.pg_conn.cursor() as cursor:
                 # The main query to fetch the records, now including mime_type
@@ -168,12 +168,20 @@ class CAAImporter:
 
                             # Use the datastore's `bulk_add` function
                             self.datastore.bulk_add(records)
-                            
+
                             # Update the progress bar
                             pbar.update(len(records))
                             total_imported += len(records)
-            
+
             print(f"\nImport process complete. Total records imported: {total_imported}")
+
+            # After import, update the import timestamp using the latest date_uploaded from Postgres
+            latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
+            if latest_ts:
+                self.datastore.update_import_timestamp(latest_ts)
+                print(f"Updated import timestamp to: {latest_ts}")
+            else:
+                print("Warning: Could not fetch latest date_uploaded from Postgres.")
 
         except psycopg2.Error as e:
             print(f"PostgreSQL query error: {e}")
@@ -283,10 +291,14 @@ class CAAImporter:
                             pbar.update(len(records))
 
                     # Update the import timestamp if we imported any records
-                    if total_imported > 0 and latest_date_uploaded:
-                        print(f"Updating import timestamp to: {latest_date_uploaded}")
-                        self.datastore.update_import_timestamp(latest_date_uploaded)
-                    
+                    if total_imported > 0:
+                        # Use the latest date_uploaded from Postgres, not just the last batch
+                        latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
+                        if latest_ts:
+                            self.datastore.update_import_timestamp(latest_ts)
+                            print(f"Updated import timestamp to: {latest_ts}")
+                        else:
+                            print("Warning: Could not fetch latest date_uploaded from Postgres.")
                     print(f"\nIncremental import complete. New records imported: {total_imported}")
 
         except psycopg2.Error as e:

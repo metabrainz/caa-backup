@@ -74,6 +74,21 @@ class ImportTimestamp(peewee.Model):
 # The main class for the data store project.
 # -----------------------------------------------------------------------------
 class CAABackupDataStore:
+
+    def fetch_latest_date_uploaded(self, pg_conn):
+        """
+        Fetches the latest date_uploaded from the cover_art_archive.cover_art table in the source PostgreSQL DB.
+        Args:
+            pg_conn: An open psycopg2 connection to the source PostgreSQL database.
+        Returns:
+            str: The ISO format string of the latest date_uploaded, or None if not found.
+        """
+        with pg_conn.cursor() as cursor:
+            cursor.execute("SELECT MAX(date_uploaded) FROM cover_art_archive.cover_art")
+            max_date_uploaded = cursor.fetchone()[0]
+        if max_date_uploaded:
+            return max_date_uploaded
+        return None
     """
     A simple data store for managing CAA backup statuses using PeeWee.
     """
