@@ -27,14 +27,70 @@ Then edit .env according to your needs:
 * BACKUP_DIR="caa-backup" -- the cache directory where to store the downloaded files
 * DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
 
+## Usage with manage.py (Recommended)
+
+The easiest way to use this system is through the `manage.py` script, which provides a unified interface:
+
+```bash
+# Activate your virtual environment first
+source .ve/bin/activate
+
+# View all available commands
+python manage.py --help
+
+# Check system status and configuration
+python manage.py status
+
+# Import data from PostgreSQL (first run)
+python manage.py import-data
+
+# Download cover art images (this will take DAYS or WEEKS!)
+python manage.py download
+
+# Verify local cache against database
+python manage.py verify
+
+# Start standalone monitoring server
+python manage.py monitor --port 8080
+```
+
+### Command Options
+
+- `import-data`: Import from PostgreSQL to SQLite
+  - `--batch-size INTEGER`: Records per batch (default: 1000)
+  - `--force`: Overwrite existing database
+
+- `download`: Download cover art images
+  - `--threads INTEGER`: Download threads (default: 8)
+  - `--batch-size INTEGER`: Records per batch (default: 1000)
+  - `--monitor-port INTEGER`: Monitoring port (default: 8080)
+
+- `verify`: Verify cache against database
+- `monitor`: Standalone monitoring server
+  - `--port INTEGER`: Server port (default: 8080)
+  - `--host TEXT`: Server host (default: localhost)
+
+- `status`: Display system status and statistics
+
 ## First run
+
+1. Import the database: `python manage.py import-data`
+2. Download images: `python manage.py download`
+
+## Subsequent runs
+
+To keep the backup up-to-date:
+1. Re-import data: `python manage.py import-data --force`
+2. Verify existing files: `python manage.py verify`
+3. Download new files: `python manage.py download`
+
+## Manual Usage (Individual Scripts)
+
+You can still run the individual scripts directly:
 
 Run caa_importer.py to download the cover_art_archive.cover_art table into SQLite.
 
 Then, run caa_downloader.py to download the cover art images. This is going to take DAYS, if not WEEKS!
-
-
-## Subsequent runs
 
 To keep the backup up-to-date run the caa_importer.py script again to re-download all the CAA data, 
 then re-run caa_verify.py to mark all the downloaded files as downloaded. Finally, run caa_downloader.py
