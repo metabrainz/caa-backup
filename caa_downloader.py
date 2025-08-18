@@ -17,6 +17,7 @@ import requests
 import click
 import time
 import sys
+from collections import deque
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus
 import logging
@@ -63,18 +64,43 @@ class CAADownloader:
         self.errors = 0
         self.pbar = None  # No longer used
         self.lock = Lock()
+        
+        # Queue to track download completion times for rate calculation
+        self.download_times = deque(maxlen=25) 
 
         # Ensure the base download directory exists
         if not os.path.exists(self.cache_dir):
             os.makedirs(self.cache_dir)
             logging.info(f"Created base cache directory: {self.cache_dir}")
 
+    def get_download_rate(self):
+        """
+        Calculate the current download rate based on recent download completion times.
+        
+        Returns:
+            float: Downloads per second, or 0 if insufficient data
+        """
+        with self.lock:
+            if len(self.download_times) < 2:
+                return 0.0
+            
+            # Calculate time elapsed since the oldest recorded download
+            time_elapsed = self.download_times[-1] - self.download_times[0]
+            
+            if time_elapsed <= 0:
+                return 0.0
+            
+            # Rate = number of downloads / time elapsed
+            return (len(self.download_times) - 1) / time_elapsed
+
     def stats(self):
-        # No rate tracking now
+        # Include download rate in stats
+        download_rate = self.get_download_rate()
         return {
             "total_to_download": self.total,
             "downloaded": self.downloaded,
-            "download_errors": self.errors
+            "download_errors": self.errors,
+            "download_rate": download_rate
         }
 
     def _download_and_save_record(self, record):
@@ -128,6 +154,11 @@ class CAADownloader:
 
                 # Update the database
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                
+                # Record successful download time for rate calculation
+                with self.lock:
+                    self.download_times.append(time.time())
+                
                 return release_mbid, caa_id  # Success, exit the loop
 
             except requests.exceptions.HTTPError as e:
@@ -218,7 +249,9 @@ class CAADownloader:
 
                             now = time.time()
                             if now - last_log >= DOWNLOAD_PROGRESS_INTERVAL:
-                                logging.info(f"Downloaded: {downloaded} / {total_to_download} (Errors: {errors})")
+                                download_rate = self.get_download_rate()
+                                rate_str = f" {download_rate:.2f}/sec " if download_rate > 0 else ""
+                                logging.info(f"Downloaded: {downloaded} / {total_to_download} {rate_str} Errors: {errors}")
                                 last_log = now
 
                     # Final progress log

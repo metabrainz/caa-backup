@@ -190,6 +190,12 @@ class CAAImporter:
             else:
                 logging.warning("Could not fetch latest date_uploaded from Postgres.")
 
+            # After successful import, create unique index on caa_id for optimal query performance
+            logging.info("Creating unique index on caa_id for optimal query performance...")
+            from store import CAABackup
+            with self.datastore:
+                CAABackup.create_caa_id_index()
+
         except psycopg2.Error as e:
             logging.error(f"PostgreSQL query error: {e}")
         finally:

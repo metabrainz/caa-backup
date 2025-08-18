@@ -35,14 +35,17 @@ class CAABackup(peewee.Model):
     Represents the 'caa_backup' table with an updated schema.
 
     Fields:
-    - caa_id: The CAA ID, which is the 64-bit integer primary key.
+    - caa_id: The CAA ID, which is the 64-bit integer (unique index added after import for performance).
     - release_mbid: The MusicBrainz ID for the release.
     - status: The current status of the backup.
     - error: An optional text field to store error messages if the backup fails.
     - mime_type: The MIME type of the cover art image.
     - date_uploaded: The timestamp when the image was uploaded to CAA.
+    
+    Note: The unique index on caa_id is added after bulk import is complete
+    to improve import performance. Use create_caa_id_index() method after import.
     """
-    caa_id = peewee.BigIntegerField(primary_key=True, null=False)
+    caa_id = peewee.BigIntegerField(primary_key=False, null=False)  # No primary key, index added later
     release_mbid = peewee.TextField(null=False)
     status = peewee.IntegerField(null=False)
     error = peewee.TextField(null=True)
@@ -57,6 +60,55 @@ class CAABackup(peewee.Model):
     def status_enum(self):
         """Returns the status as a CoverStatus enum member."""
         return CoverStatus(self.status)
+    
+    @classmethod
+    def has_caa_id_index(cls):
+        """
+        Checks if a unique index exists on the caa_id column.
+        Returns True if the index exists, False otherwise.
+        """
+        try:
+            # Query SQLite's index list to check for caa_id index
+            cursor = db.execute_sql("PRAGMA index_list(caa_backup)")
+            indexes = cursor.fetchall()
+            
+            for index in indexes:
+                index_name = index[1]  # Index name
+                is_unique = index[2]   # Unique flag (1 if unique, 0 if not)
+                
+                # Check if this is our caa_id index
+                if 'caa_id' in index_name and is_unique == 1:
+                    return True
+            
+            return False
+        except Exception as e:
+            logging.error(f"Error checking caa_id index status: {e}")
+            return False
+    
+    @classmethod
+    def create_caa_id_index(cls):
+        """
+        Creates a unique index on the caa_id column after bulk import is complete.
+        This should be called after the initial import to add the unique constraint
+        and improve query performance without the overhead during bulk inserts.
+        """
+        # Check if index already exists
+        if cls.has_caa_id_index():
+            logging.info("Unique index on caa_id already exists")
+            return
+            
+        try:
+            with db.atomic():
+                logging.info("Creating unique index on caa_id...")
+                
+                # Create unique index on caa_id column
+                db.execute_sql("CREATE UNIQUE INDEX idx_caa_backup_caa_id ON caa_backup (caa_id)")
+                
+                logging.info("Unique index on caa_id created successfully")
+                
+        except Exception as e:
+            logging.error(f"Error creating unique index on caa_id: {e}")
+            raise
 
 class ImportTimestamp(peewee.Model):
     """
