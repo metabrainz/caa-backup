@@ -16,6 +16,7 @@ import os
 import requests
 import click
 import time
+import shutil
 import sys
 from collections import deque
 from dotenv import load_dotenv
@@ -93,15 +94,81 @@ class CAADownloader:
             # Rate = number of downloads / time elapsed
             return (len(self.download_times) - 1) / time_elapsed
 
+    def get_disk_usage_stats(self):
+        """
+        Safely retrieve disk usage statistics for the cache directory.
+
+        Returns:
+            tuple: (total_bytes, free_bytes, used_bytes, used_percent)
+                   Returns (None, None, None, None) if unavailable.
+        """
+        if self.cache_dir and os.path.exists(self.cache_dir):
+            try:
+                total, used, free = shutil.disk_usage(self.cache_dir)
+                used_percent = (used / total * 100) if total else 0
+                return total, free, used, used_percent
+            except Exception as exc:
+                logging.warning(
+                    "Failed to get disk usage for cache_dir '%s': %s", self.cache_dir, exc
+                )
+        return None, None, None, None
+
+    def estimate_seconds_before_full(self, download_rate, used_bytes, total_bytes, downloaded):
+        """
+        Estimate the number of seconds before the disk is full, based on current download rate.
+
+        Returns:
+            float or None: Seconds before full, or None if cannot estimate.
+        """
+        if not all([download_rate, used_bytes, total_bytes, downloaded]):
+            return None
+        avg_file_size = used_bytes / downloaded if downloaded else 0
+        bytes_until_full = total_bytes - used_bytes
+        if download_rate > 0 and avg_file_size > 0 and bytes_until_full > 0:
+            files_left = bytes_until_full / avg_file_size
+            return files_left / download_rate
+        return None
+
+    def estimate_seconds_before_completed(self, download_rate):
+        """
+        Estimate the number of seconds before all downloads are completed.
+
+        Returns:
+            float or None: Estimated seconds remaining, or None if cannot estimate.
+        """
+        if self.total is not None and self.downloaded is not None:
+            files_left_to_download = self.total - self.downloaded
+            if download_rate > 0 and files_left_to_download > 0:
+                return files_left_to_download / download_rate
+        return None
+
     def stats(self):
-        # Include download rate in stats
-        download_rate = self.get_download_rate()
-        return {
-            "total_to_download": self.total,
-            "downloaded": self.downloaded,
-            "download_errors": self.errors,
-            "download_rate": download_rate
-        }
+        """
+        Return current download and disk usage statistics, including
+        estimates of seconds before completion and before disk is full.
+
+        Returns:
+            dict: Download stats, disk usage, and time estimates.
+        """
+        with self.lock:
+            download_rate = self.get_download_rate()
+            total, free, used, used_percent = self.get_disk_usage_stats()
+            seconds_before_full = self.estimate_seconds_before_full(
+                download_rate, used, total, self.downloaded
+            )
+            seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
+
+            return {
+                "total_to_download": self.total,
+                "downloaded": self.downloaded,
+                "download_errors": self.errors,
+                "download_rate": download_rate,
+                "disk_total_bytes": total,
+                "disk_free_bytes": free,
+                "disk_used_percent": used_percent,
+                "seconds_before_full": seconds_before_full,
+                "seconds_before_completed": seconds_before_completed,
+            }
 
     def _download_and_save_record(self, record):
         """
