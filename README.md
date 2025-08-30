@@ -9,25 +9,26 @@ This projects exists to backup the Cover Art Archive's original sized pieces of 
 
 Create a virtual env and install the python3 pre-requisites:
 
-```
+```bash
 python -mvenv .ve
 source .ve/bin/activate
 pip install -r requirements.txt
 ```
 
-Now copy dot-env-sample to .env:
-```
+Now copy `dot-env-sample` to `.env`:
+
+```bash
 cp dot-env-sample .env
 ```
 
-Then edit .env according to your needs:
+Then edit `.env` according to your needs:
 
-* PG_CONN_STRING -- the postgres connection string for access to a MusicBrainz database
-* DB_PATH="caa_backup.db" -- the location where to store the local database file to keep track of progress.
-* BACKUP_DIR="caa-backup" -- the cache directory where to store the downloaded files
-* DOWNLOAD_THREADS=12 -- the number of threads to use for simulteanous downloads
+* `PG_CONN_STRING` -- the postgres connection string for access to a MusicBrainz database
+* `DB_PATH="caa_backup.db"` -- the location where to store the local database file to keep track of progress.
+* `BACKUP_DIR="caa-backup"` -- the cache directory where to store the downloaded files
+* `DOWNLOAD_THREADS=12` -- the number of threads to use for simulteanous downloads
 
-## Usage with manage.py (Recommended)
+## Usage with `manage.py` (Recommended)
 
 The easiest way to use this system is through the `manage.py` script, which provides a unified interface:
 
@@ -94,11 +95,11 @@ Alternatively, for a complete refresh:
 
 You can still run the individual scripts directly:
 
-Run caa_importer.py to download the cover_art_archive.cover_art table into SQLite.
+Run `caa_importer.py` to download the `cover_art_archive.cover_art` table into SQLite.
 
-Then, run caa_downloader.py to download the cover art images. This is going to take DAYS, if not WEEKS!
+Then, run `caa_downloader.py` to download the cover art images. This is going to take DAYS, if not WEEKS!
 
-To keep the backup up-to-date run the caa_importer.py script again to re-download all the CAA data, 
-then re-run caa_verify.py to mark all the downloaded files as downloaded. Finally, run caa_downloader.py
-again to download any new files that were added since the last run.
+To keep the backup up-to-date run the `caa_importer.py` script again to re-download all the CAA data, 
+then re-run `caa_verify.py` to mark all the downloaded files as downloaded.
+Finally, run `caa_downloader.py` again to download any new files that were added since the last run.
 
