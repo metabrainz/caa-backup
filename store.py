@@ -410,9 +410,15 @@ class CAABackupDataStore:
 
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
-        self.db.connect()
+        try:
+            self.db.connect()
+        except peewee.OperationalError:
+            pass
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit point. Closes the database connection."""
-        self.db.close()
+        try:
+            self.db.close()
+        except peewee.OperationalError:
+            pass

@@ -22,5 +22,7 @@ RUN apt-get autoremove -y && \
 COPY . /code/caa-backup
 COPY ./docker/consul-template.conf /etc/consul-template.conf
 
+EXPOSE 8080
+
 # Lets not start a service, but lets run commands via cron eventally.
 COPY ./docker/caa-backup.service /etc/service/caa-backup/run

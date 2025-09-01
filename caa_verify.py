@@ -72,6 +72,7 @@ class CAAVerifier:
                 if now - last_log >= VERIFY_PROGRESS_INTERVAL:
                     logging.info(f"Scanned {processed} files...")
                     last_log = now
+
         logging.info(f"Finished scanning. Total files processed: {processed}")
         return found_caa_ids
 
@@ -80,7 +81,7 @@ class CAAVerifier:
         Executes the verification process.
         """
 
-    logging.info("Starting cache verification process...")
+        logging.info("Starting cache verification process...")
 
         with self.datastore:
             # Step 1: Mark all records in the database as NOT_DOWNLOADED.
@@ -108,8 +109,8 @@ class CAAVerifier:
             else:
                 logging.info("No downloaded records found in cache.")
 
-    self._print_summary()
-    logging.info("Verification complete.")
+        self._print_summary()
+        logging.info("Verification complete.")
 
     def _print_summary(self):
         """

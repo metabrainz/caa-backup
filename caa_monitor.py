@@ -77,7 +77,7 @@ class CAAServiceMonitor(threading.Thread):
     A threaded web server to monitor a service.
     It provides a simple HTTP endpoint for status checks.
     """
-    def __init__(self, downloader, host='localhost', port=DEFAULT_PORT):
+    def __init__(self, downloader, host='0.0.0.0', port=DEFAULT_PORT):
         """
         Initialize the thread and the server parameters.
         

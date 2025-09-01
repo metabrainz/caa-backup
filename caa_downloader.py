@@ -28,6 +28,7 @@ from threading import Lock
 
 from caa_monitor import CAAServiceMonitor
 from caa_importer import CAAImporter
+from caa_verify import CAAVerifier
 
 
 # How often to check for new images (in seconds)
@@ -150,25 +151,24 @@ class CAADownloader:
         Returns:
             dict: Download stats, disk usage, and time estimates.
         """
-        with self.lock:
-            download_rate = self.get_download_rate()
-            total, free, used, used_percent = self.get_disk_usage_stats()
-            seconds_before_full = self.estimate_seconds_before_full(
-                download_rate, used, total, self.downloaded
-            )
-            seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
 
-            return {
-                "total_to_download": self.total,
-                "downloaded": self.downloaded,
-                "download_errors": self.errors,
-                "download_rate": download_rate,
-                "disk_total_bytes": total,
-                "disk_free_bytes": free,
-                "disk_used_percent": used_percent,
-                "seconds_before_full": seconds_before_full,
-                "seconds_before_completed": seconds_before_completed,
-            }
+        download_rate = self.get_download_rate()
+        total, free, used, used_percent = self.get_disk_usage_stats()
+        seconds_before_full = self.estimate_seconds_before_full(
+            download_rate, used, total, self.downloaded
+        )
+        seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
+        return {
+            "total_to_download": self.total,
+            "downloaded": self.downloaded,
+            "download_errors": self.errors,
+            "download_rate": download_rate,
+            "disk_total_bytes": total,
+            "disk_free_bytes": free,
+            "disk_used_percent": used_percent,
+            "seconds_before_full": seconds_before_full,
+            "seconds_before_completed": seconds_before_completed,
+        }
 
     def _download_and_save_record(self, record):
         """
@@ -348,9 +348,9 @@ def main():
     db_path = os.getenv('DB_PATH')
     cache_dir = os.getenv('CACHE_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
-    monitor_port = int(os.getenv('MONITOR_PORT', '8000'))
+    monitor_port = int(os.getenv('MONITOR_PORT', '8080'))
     pg_conn_string = os.getenv('PG_CONN_STRING')
-
+    
     if not db_path:
         print("Error: DB_PATH environment variable is not set.")
         return
@@ -380,6 +380,11 @@ def main():
         logging.info("No database was found. Running caa_importer to create and populate the DB...")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import()
+        
+        logging.info("DB import complete. Start local file scan....")
+        verify = CAAVerifier(db_path=db_path, cache_dir=cache_dir)
+        verify.run_verifier()
+        
     logging.info("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
