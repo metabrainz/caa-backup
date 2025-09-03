@@ -274,21 +274,23 @@ class CAADownloader:
         """
 
         logging.info("Starting cover art download ...")
-
-
         with self.datastore:
-            self.total = self.datastore.get_undownloaded_count()
-            if self.total == 0:
-                logging.info("No records found with 'NOT_DOWNLOADED' status. Exiting.")
-                return
-
-            logging.info(f"Found {self.total:,} covers to download. Starting threads...")
-
+            # Fetch existing status counts from database to set initial values
+            status_counts = self.datastore.get_status_counts()
+            self.downloaded = status_counts.get('DOWNLOADED', 0)
+            self.errors = status_counts.get('TEMP_ERROR', 0) + status_counts.get('PERMANENT_ERROR', 0)
+            self.total = sum(status_counts.values())
+            
+            logging.info("%d files downloaded" % self.downloaded)
+            logging.info("%d errors" % self.errors)
+            logging.info("%d to download" % self.total)
+            
+            logging.info(f"Starting threads...")
             try:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     total_to_download = self.total
-                    downloaded = 0
-                    errors = 0
+                    downloaded_this_session = 0
+                    errors_this_session = 0
                     start_time = time.time()
                     last_log = start_time
                     while True:
@@ -308,9 +310,11 @@ class CAADownloader:
                             try:
                                 result = future.result()
                                 if result[0] is not None:
-                                    downloaded += 1
+                                    downloaded_this_session += 1
+                                    self.downloaded += 1
                                 else:
-                                    errors += 1
+                                    errors_this_session += 1
+                                    self.errors += 1
                             except Exception as e:
                                 logging.error(f"A download task generated an exception: {e}")
 
@@ -318,11 +322,12 @@ class CAADownloader:
                             if now - last_log >= DOWNLOAD_PROGRESS_INTERVAL:
                                 download_rate = self.get_download_rate()
                                 rate_str = f" {download_rate:.2f}/sec " if download_rate > 0 else ""
-                                logging.info(f"Downloaded: {downloaded} / {total_to_download} {rate_str} Errors: {errors}")
+                                logging.info(f"Downloaded: {self.downloaded} / {total_to_download} {rate_str} Errors: {self.errors}")
                                 last_log = now
 
                     # Final progress log
-                    logging.info(f"Downloaded: {downloaded} / {total_to_download} (Errors: {errors})")
+                    logging.info(f"Downloaded: {self.downloaded} / {total_to_download} (Errors: {self.errors})")
+                    logging.info(f"This session: {downloaded_this_session} downloaded, {errors_this_session} errors")
             except KeyboardInterrupt:
                 pass
 
