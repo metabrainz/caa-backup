@@ -61,64 +61,33 @@ class CAAImporter:
             logging.error(f"PostgreSQL connection error: {e}")
             return None
 
-    def get_caa_records(self, cursor: psycopg2.extensions.cursor):
+    def get_caa_records(self, cursor: psycopg2.extensions.cursor, include_date=False):
         """
         Fetches a batch of CAA records from the PostgreSQL query result.
 
         Args:
             cursor (psycopg2.extensions.cursor): The cursor to fetch records from.
+            include_date (bool): If True, expects a 4th column (date_uploaded).
 
         Returns:
             list: A list of dictionaries representing database records.
         """
-        # Fetch the next batch of records from the cursor.
         records_tuples = cursor.fetchmany(self.batch_size)
 
-        # If no more records, return an empty list to signal the end.
         if not records_tuples:
             return []
 
-        # Convert tuples to a list of dictionaries to match our datastore format.
-        # The query returns caa.id, r.gid, and caa.mime_type.
         records_dict = []
         for row in records_tuples:
-            records_dict.append({
-                'caa_id': row[0],
-                'release_mbid': row[1],
-                'mime_type': row[2],  # New field added to the record
-                'status': CoverStatus.NOT_DOWNLOADED
-            })
-
-        return records_dict
-
-    def get_caa_records_with_date(self, cursor: psycopg2.extensions.cursor):
-        """
-        Fetches a batch of CAA records with date_uploaded from the PostgreSQL query result.
-
-        Args:
-            cursor (psycopg2.extensions.cursor): The cursor to fetch records from.
-
-        Returns:
-            list: A list of dictionaries representing database records including date_uploaded.
-        """
-        # Fetch the next batch of records from the cursor.
-        records_tuples = cursor.fetchmany(self.batch_size)
-
-        # If no more records, return an empty list to signal the end.
-        if not records_tuples:
-            return []
-
-        # Convert tuples to a list of dictionaries to match our datastore format.
-        # The query returns caa.id, r.gid, caa.mime_type, and caa.date_uploaded.
-        records_dict = []
-        for row in records_tuples:
-            records_dict.append({
+            record = {
                 'caa_id': row[0],
                 'release_mbid': row[1],
                 'mime_type': row[2],
-                'date_uploaded': row[3],
                 'status': CoverStatus.NOT_DOWNLOADED
-            })
+            }
+            if include_date:
+                record['date_uploaded'] = row[3]
+            records_dict.append(record)
 
         return records_dict
 
@@ -279,7 +248,7 @@ class CAAImporter:
                     last_log = start_time
                     while True:
                         # Fetch a batch of records from the cursor
-                        records = self.get_caa_records_with_date(cursor)
+                        records = self.get_caa_records(cursor, include_date=True)
 
                         if not records:
                             break
