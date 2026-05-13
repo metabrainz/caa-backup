@@ -156,6 +156,7 @@ class CAABackupDataStore:
         """
         self.db = db
         self.db.init(db_path)
+        self.db.pragma('journal_mode', 'wal')
         self.model = CAABackup
 
     def create(self):
