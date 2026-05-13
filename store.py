@@ -230,14 +230,11 @@ class CAABackupDataStore:
         while True:
             try:
                 return self.model.get_or_none(self.model.caa_id == caa_id)
-            except peewee.OperationalError as e:
-                logging.error(f"Database error: {e}")
-                return None
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise err
+                raise
 
     def get_batch(self, status: CoverStatus = CoverStatus.NOT_DOWNLOADED, count: int = 100):
         """
@@ -252,14 +249,11 @@ class CAABackupDataStore:
                 return self.model.select().where(
                     self.model.status == status.value
                 ).order_by(self.model.release_mbid).limit(count)
-            except peewee.OperationalError as e:
-                logging.error(f"Database error: {e}")
-                return []
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise err
+                raise
 
     def update(self, caa_id: int, release_mbid: str, new_status: CoverStatus, error: str = None):
         """Updates the status and error for a specific record."""
@@ -334,7 +328,7 @@ class CAABackupDataStore:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise []
+                raise
 
     def get_undownloaded_count(self):
         """
