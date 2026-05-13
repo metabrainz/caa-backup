@@ -269,6 +269,7 @@ class CAABackupDataStore:
                 return
             except self.model.DoesNotExist:
                 logging.error(f"Error: Record with CAA ID {caa_id} not found.")
+                return
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
