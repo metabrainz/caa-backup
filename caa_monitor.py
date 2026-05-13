@@ -6,7 +6,6 @@ import http.server
 import json
 import logging
 import socketserver
-import time
 
 # Define a default port for the web server to listen on.
 DEFAULT_PORT = 8000

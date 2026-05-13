@@ -18,7 +18,6 @@ import click
 import time
 import signal
 import shutil
-import sys
 from collections import deque
 from dotenv import load_dotenv
 from store import CAABackupDataStore, CoverStatus

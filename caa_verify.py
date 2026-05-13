@@ -6,12 +6,11 @@
 # cache to 'DOWNLOADED' in batches to improve performance and memory usage.
 
 import os
-import peewee
 import click
 import time
 import logging
 from dotenv import load_dotenv
-from store import CAABackupDataStore, CoverStatus
+from store import CAABackupDataStore
 from typing import List
 # How often to log verification progress (in seconds)
 VERIFY_PROGRESS_INTERVAL = 10

@@ -13,7 +13,6 @@
 import os
 import peewee
 import sys
-from datetime import datetime
 import time
 import psycopg2
 import click

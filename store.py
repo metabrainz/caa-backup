@@ -9,7 +9,7 @@ import peewee
 import enum
 import time
 import logging
-from typing import List, Tuple
+from typing import List
 
 # Define a constant for the database retry delay
 DB_RETRY_DELAY_SECONDS = 1
