@@ -129,6 +129,21 @@ class ImportTimestamp(peewee.Model):
 # The main class for the data store project.
 # -----------------------------------------------------------------------------
 class CAABackupDataStore:
+    """
+    A simple data store for managing CAA backup statuses using PeeWee.
+    """
+
+    def __init__(self, db_path='caa_backup.db'):
+        """
+        Initializes the data store.
+
+        Args:
+            db_path (str): The path to the SQLite database file.
+        """
+        self.db = db
+        self.db.init(db_path)
+        self.db.pragma('journal_mode', 'wal')
+        self.model = CAABackup
 
     def fetch_latest_date_uploaded(self, pg_conn):
         """
@@ -144,20 +159,6 @@ class CAABackupDataStore:
         if max_date_uploaded:
             return max_date_uploaded
         return None
-    """
-    A simple data store for managing CAA backup statuses using PeeWee.
-    """
-    def __init__(self, db_path='caa_backup.db'):
-        """
-        Initializes the data store.
-
-        Args:
-            db_path (str): The path to the SQLite database file.
-        """
-        self.db = db
-        self.db.init(db_path)
-        self.db.pragma('journal_mode', 'wal')
-        self.model = CAABackup
 
     def create(self):
         """
