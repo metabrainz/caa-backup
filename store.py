@@ -10,8 +10,6 @@ import enum
 import time
 import logging
 from typing import List, Tuple
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 # Define a constant for the database retry delay
 DB_RETRY_DELAY_SECONDS = 1
