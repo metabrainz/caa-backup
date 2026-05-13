@@ -216,8 +216,10 @@ class CAADownloader:
                 response = requests.get(url, headers=self.headers, timeout=30)
                 response.raise_for_status()
 
-                with open(filepath, 'wb') as f:
+                tmp_filepath = filepath + '.tmp'
+                with open(tmp_filepath, 'wb') as f:
                     f.write(response.content)
+                os.replace(tmp_filepath, filepath)
 
                 # Update the database
                 self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
