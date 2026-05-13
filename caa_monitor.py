@@ -4,6 +4,7 @@
 import threading
 import http.server
 import json
+import logging
 import socketserver
 import time
 
@@ -103,10 +104,10 @@ class CAAServiceMonitor(threading.Thread):
         """
         The main method for the thread. This is where the server is started.
         """
-        print(f"Starting CAAServiceMonitor on {self.server_address[0]}:{self.server_address[1]}...")
+        logging.info(f"Starting CAAServiceMonitor on {self.server_address[0]}:{self.server_address[1]}...")
         # Serve requests until the shutdown method is called.
         self.httpd.serve_forever()
-        print("CAAServiceMonitor shut down.")
+        logging.info("CAAServiceMonitor shut down.")
 
     def shutdown(self):
         """
