@@ -25,7 +25,7 @@ Then edit `.env` according to your needs:
 
 * `PG_CONN_STRING` -- the postgres connection string for access to a MusicBrainz database
 * `DB_PATH="caa_backup.db"` -- the location where to store the local database file to keep track of progress.
-* `BACKUP_DIR="caa-backup"` -- the cache directory where to store the downloaded files
+* `IMAGES_DIR="caa-backup"` -- the directory where to store the downloaded cover art images
 * `DOWNLOAD_THREADS=12` -- the number of threads to use for simulteanous downloads
 
 ## Usage with `manage.py` (Recommended)

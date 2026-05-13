@@ -126,11 +126,11 @@ def download(threads, batch_size, monitor_port):
     local database. It supports multithreaded downloading for improved performance.
     """
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('BACKUP_DIR')
+    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
     
     click.echo("CAA Download Configuration:")
     click.echo(f"  Database: {db_path}")
-    click.echo(f"  Cache directory: {cache_dir}")
+    click.echo(f"  Images directory: {images_dir}")
     click.echo(f"  Download threads: {threads}")
     click.echo(f"  Batch size: {batch_size}")
     click.echo(f"  Monitor port: {monitor_port}")
@@ -139,8 +139,8 @@ def download(threads, batch_size, monitor_port):
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         sys.exit(1)
     
-    if not cache_dir:
-        click.echo("Error: BACKUP_DIR environment variable is not set.", err=True)
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
         sys.exit(1)
     
     if not os.path.exists(db_path):
@@ -155,7 +155,7 @@ def download(threads, batch_size, monitor_port):
     try:
         downloader = CAADownloader(
             db_path=db_path, 
-            cache_dir=cache_dir, 
+            images_dir=images_dir, 
             batch_size=batch_size,
             download_threads=threads
         )
@@ -187,18 +187,18 @@ def verify():
     to 'NOT_DOWNLOADED' and then marks files found in the cache as 'DOWNLOADED'.
     """
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('BACKUP_DIR')
+    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
     
     click.echo("CAA Verify Configuration:")
     click.echo(f"  Database: {db_path}")
-    click.echo(f"  Cache directory: {cache_dir}")
+    click.echo(f"  Images directory: {images_dir}")
     
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         sys.exit(1)
     
-    if not cache_dir:
-        click.echo("Error: BACKUP_DIR environment variable is not set.", err=True)
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
         sys.exit(1)
     
     if not os.path.exists(db_path):
@@ -206,12 +206,12 @@ def verify():
         click.echo("Run 'manage.py import' first to create the database.", err=True)
         sys.exit(1)
     
-    if not os.path.exists(cache_dir):
-        click.echo(f"Error: Cache directory '{cache_dir}' not found.", err=True)
+    if not os.path.exists(images_dir):
+        click.echo(f"Error: Images directory '{images_dir}' not found.", err=True)
         sys.exit(1)
     
     try:
-        verifier = CAAVerifier(db_path=db_path, cache_dir=cache_dir)
+        verifier = CAAVerifier(db_path=db_path, images_dir=images_dir)
         verifier.run_verifier()
         click.echo("Verification completed successfully!")
     except Exception as e:
@@ -264,12 +264,12 @@ def status():
     statistics about your CAA backup system.
     """
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('BACKUP_DIR')
+    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
     pg_conn_string = os.getenv('PG_CONN_STRING')
     
     click.echo("=== CAA Backup System Status ===")
     click.echo(f"Database: {db_path}")
-    click.echo(f"Cache directory: {cache_dir}")
+    click.echo(f"Images directory: {images_dir}")
     click.echo(f"PostgreSQL connection: {pg_conn_string}")
     
     # Check file/directory existence
@@ -281,16 +281,16 @@ def status():
         else:
             click.echo("✗ Database file does not exist")
     
-    if cache_dir:
-        if os.path.exists(cache_dir):
-            click.echo("✓ Cache directory exists")
-            # Count files in cache directory
+    if images_dir:
+        if os.path.exists(images_dir):
+            click.echo("✓ Images directory exists")
+            # Count files in images directory
             file_count = 0
-            for root, dirs, files in os.walk(cache_dir):
+            for root, dirs, files in os.walk(images_dir):
                 file_count += len(files)
-            click.echo(f"  Files in cache: {file_count:,}")
+            click.echo(f"  Files in directory: {file_count:,}")
         else:
-            click.echo("✗ Cache directory does not exist")
+            click.echo("✗ Images directory does not exist")
     
     # If database exists, show some statistics
     if db_path and os.path.exists(db_path):

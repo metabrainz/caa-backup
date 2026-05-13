@@ -46,18 +46,18 @@ class CAADownloader:
     storing them locally based on a configured directory structure.
     """
 
-    def __init__(self, db_path: str, cache_dir: str, batch_size: int = 1000, download_threads: int = 8):
+    def __init__(self, db_path: str, images_dir: str, batch_size: int = 1000, download_threads: int = 8):
         """
         Initializes the downloader with paths to the datastore and download directory.
 
         Args:
             db_path (str): The path to the local SQLite database file.
-            cache_dir (str): The root directory where images will be saved.
+            images_dir (str): The root directory where images will be saved.
             batch_size (int): The number of records to fetch and process per batch.
             download_threads (int): The number of threads to use for downloading.
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
-        self.cache_dir = cache_dir
+        self.images_dir = images_dir
         self.headers = {'User-Agent': 'Cover Art Archive Backup (rob at metabrainz)'}
         self.batch_size = batch_size
         self.download_threads = download_threads
@@ -71,9 +71,9 @@ class CAADownloader:
         self.download_times = deque(maxlen=25) 
 
         # Ensure the base download directory exists
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir)
-            logging.info(f"Created base cache directory: {self.cache_dir}")
+        if not os.path.exists(self.images_dir):
+            os.makedirs(self.images_dir)
+            logging.info(f"Created base images directory: {self.images_dir}")
 
     def get_download_rate(self):
         """
@@ -103,14 +103,14 @@ class CAADownloader:
             tuple: (total_bytes, free_bytes, used_bytes, used_percent)
                    Returns (None, None, None, None) if unavailable.
         """
-        if self.cache_dir and os.path.exists(self.cache_dir):
+        if self.images_dir and os.path.exists(self.images_dir):
             try:
-                total, used, free = shutil.disk_usage(self.cache_dir)
+                total, used, free = shutil.disk_usage(self.images_dir)
                 used_percent = (used / total * 100) if total else 0
                 return total, free, used, used_percent
             except Exception as exc:
                 logging.warning(
-                    "Failed to get disk usage for cache_dir '%s': %s", self.cache_dir, exc
+                    "Failed to get disk usage for images_dir '%s': %s", self.images_dir, exc
                 )
         return None, None, None, None
 
@@ -196,7 +196,7 @@ class CAADownloader:
 
         mbid_prefix_1 = release_mbid[0]
         mbid_prefix_2 = release_mbid[1]
-        target_dir = os.path.join(self.cache_dir, mbid_prefix_1, mbid_prefix_2)
+        target_dir = os.path.join(self.images_dir, mbid_prefix_1, mbid_prefix_2)
         os.makedirs(target_dir, exist_ok=True)
 
 
@@ -351,7 +351,7 @@ def main():
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('CACHE_DIR')
+    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
     download_threads = os.getenv('DOWNLOAD_THREADS', '8')
     monitor_port = int(os.getenv('MONITOR_PORT', '8080'))
     pg_conn_string = os.getenv('PG_CONN_STRING')
@@ -359,8 +359,8 @@ def main():
     if not db_path:
         print("Error: DB_PATH environment variable is not set.")
         return
-    if not cache_dir:
-        print("Error: CACHE_DIR environment variable is not set.")
+    if not images_dir:
+        print("Error: IMAGES_DIR environment variable is not set.")
         return
     if not pg_conn_string:
         print("Error: PG_CONN_STRING environment variable is not set.")
@@ -378,7 +378,7 @@ def main():
 
     logging.info("Current config")
     logging.info("  db_path: %s" % db_path)
-    logging.info("  cache_dir: %s" % cache_dir)
+    logging.info("  images_dir: %s" % images_dir)
     logging.info("  threads: %d" % download_threads)
 
     if not os.path.exists(db_path):
@@ -387,12 +387,12 @@ def main():
         importer.run_import()
         
         logging.info("DB import complete. Start local file scan....")
-        verify = CAAVerifier(db_path=db_path, cache_dir=cache_dir)
+        verify = CAAVerifier(db_path=db_path, images_dir=images_dir)
         verify.run_verifier()
         
     logging.info("Database created and populated. Proceeding to download.")
 
-    downloader = CAADownloader(db_path=db_path, cache_dir=cache_dir, download_threads=download_threads)
+    downloader = CAADownloader(db_path=db_path, images_dir=images_dir, download_threads=download_threads)
     monitor = CAAServiceMonitor(downloader=downloader, port=monitor_port)
     monitor.start()
 

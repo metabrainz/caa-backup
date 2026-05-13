@@ -36,16 +36,16 @@ class CAAVerifier:
     they accurately reflect the status of the downloaded files.
     """
 
-    def __init__(self, db_path: str, cache_dir: str):
+    def __init__(self, db_path: str, images_dir: str):
         """
-        Initializes the verifier with paths to the datastore and cache directory.
+        Initializes the verifier with paths to the datastore and images directory.
 
         Args:
             db_path (str): The path to the local SQLite database file.
-            cache_dir (str): The root directory where images are stored.
+            images_dir (str): The root directory where images are stored.
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
-        self.cache_dir = cache_dir
+        self.images_dir = images_dir
 
     def _get_caa_ids_from_cache(self) -> List[int]:
         """
@@ -53,11 +53,11 @@ class CAAVerifier:
         CAA IDs found in filenames. This is a memory-efficient way to
         build a lookup list for bulk updates.
         """
-        logging.info("Scanning local cache for files...")
+        logging.info("Scanning local images directory for files...")
         found_caa_ids = []
         last_log = time.time()
         processed = 0
-        for root, _, files in os.walk(self.cache_dir):
+        for root, _, files in os.walk(self.images_dir):
             for file in files:
                 # Filename format: "mbid-uuid-caa_id.ext"
                 parts = os.path.splitext(file)[0].split('-')
@@ -137,17 +137,17 @@ def main():
     load_dotenv()
 
     db_path = os.getenv('DB_PATH')
-    cache_dir = os.getenv('CACHE_DIR')
+    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
 
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         return
 
-    if not cache_dir:
-        click.echo("Error: CACHE_DIR environment variable is not set.", err=True)
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
         return
 
-    verifier = CAAVerifier(db_path=db_path, cache_dir=cache_dir)
+    verifier = CAAVerifier(db_path=db_path, images_dir=images_dir)
     verifier.run_verifier()
 
 
