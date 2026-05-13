@@ -16,6 +16,7 @@ import os
 import requests
 import click
 import time
+import signal
 import shutil
 import sys
 from collections import deque
@@ -66,6 +67,7 @@ class CAADownloader:
         self.errors = 0
         self.pbar = None  # No longer used
         self.lock = Lock()
+        self._shutdown_requested = False
         
         # Queue to track download completion times for rate calculation
         self.download_times = deque(maxlen=25) 
@@ -295,7 +297,7 @@ class CAADownloader:
                     errors_this_session = 0
                     start_time = time.time()
                     last_log = start_time
-                    while True:
+                    while not self._shutdown_requested:
                         records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
 
                         if not records_to_download:
@@ -331,7 +333,7 @@ class CAADownloader:
                     logging.info(f"Downloaded: {self.downloaded} / {total_to_download} (Errors: {self.errors})")
                     logging.info(f"This session: {downloaded_this_session} downloaded, {errors_this_session} errors")
             except KeyboardInterrupt:
-                pass
+                logging.info("Shutdown requested, waiting for in-flight downloads to finish...")
 
             logging.info("Download process complete, exiting...")
             return
@@ -395,12 +397,19 @@ def main():
     logging.info("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, images_dir=images_dir, download_threads=download_threads)
+
+    def _handle_sigterm(signum, frame):
+        logging.info("Received SIGTERM, shutting down gracefully...")
+        downloader._shutdown_requested = True
+
+    signal.signal(signal.SIGTERM, _handle_sigterm)
+
     monitor = CAAServiceMonitor(downloader=downloader, port=monitor_port)
     monitor.start()
 
     logging.info("--- Starting download cycle ---")
     downloader.run_downloader()
-    while True:
+    while not downloader._shutdown_requested:
         cycle_start = time.time()
 
         logging.info("--- Running incremental import to fetch new rows ---")
