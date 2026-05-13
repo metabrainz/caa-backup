@@ -17,6 +17,8 @@ class CustomThreadingTCPServer(socketserver.ThreadingTCPServer):
     request handler. This is necessary because the standard server does not
     provide a mechanism to pass custom arguments to the handler's constructor.
     """
+    allow_reuse_address = True
+
     def __init__(self, server_address, RequestHandlerClass, downloader, bind_and_activate=True):
         self.downloader = downloader
         super().__init__(server_address, RequestHandlerClass, bind_and_activate)
