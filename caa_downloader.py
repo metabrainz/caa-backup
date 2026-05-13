@@ -208,63 +208,52 @@ class CAADownloader:
         status = CoverStatus.DOWNLOADED
         error = None
 
-        # Use a retry loop for transient database errors like locks
-        max_retries = 5
-        retries = 0
-        while retries < max_retries:
-            try:
-                # The datastore update needs to be handled within the thread
-                # to avoid lock contention, so we perform it here.
-                response = requests.get(url, headers=self.headers, timeout=30)
-                response.raise_for_status()
+        # Download the file first (no retry — network errors are handled separately)
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
 
-                tmp_filepath = filepath + '.tmp'
-                with open(tmp_filepath, 'wb') as f:
-                    f.write(response.content)
-                os.replace(tmp_filepath, filepath)
+            tmp_filepath = filepath + '.tmp'
+            with open(tmp_filepath, 'wb') as f:
+                f.write(response.content)
+            os.replace(tmp_filepath, filepath)
 
-                # Update the database
-                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                
-                # Record successful download time for rate calculation
-                with self.lock:
-                    self.download_times.append(time.time())
-                
-                return release_mbid, caa_id  # Success, exit the loop
-
-            except requests.exceptions.HTTPError as e:
-                # Handle HTTP errors
-                if 400 <= e.response.status_code < 500:
-                    status = CoverStatus.PERMANENT_ERROR
-                    error = str(e)
-                    logging.error(str(e))
-                else:  # 5xx server errors
-                    status = CoverStatus.TEMP_ERROR
-                    error = str(e)
-                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                return None, None  # Don't retry, just return
-
-            except requests.exceptions.RequestException as e:
-                # Handle other request exceptions like timeouts
-                status = CoverStatus.TEMP_ERROR
+        except requests.exceptions.HTTPError as e:
+            if 400 <= e.response.status_code < 500:
+                status = CoverStatus.PERMANENT_ERROR
                 error = str(e)
                 logging.error(str(e))
-                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
-                return None, None  # Don't retry, just return
-
-            except Exception as e:
-                # Handle other unexpected errors
+            else:
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
+            self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+            return None, None
+
+        except requests.exceptions.RequestException as e:
+            status = CoverStatus.TEMP_ERROR
+            error = str(e)
+            logging.error(str(e))
+            self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+            return None, None
+
+        # Retry loop for DB update only (handles transient locks)
+        max_retries = 5
+        for attempt in range(max_retries):
+            try:
+                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+
+                with self.lock:
+                    self.download_times.append(time.time())
+
+                return release_mbid, caa_id
+            except Exception as e:
                 if "database is locked" in str(e).lower():
-                    retries += 1
-                    time.sleep(0.1 * retries)  # Exponential backoff
+                    time.sleep(0.1 * (attempt + 1))
                 else:
                     logging.error(str(e))
-                    self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
                     return None, None
 
-        # If the loop finishes without success, mark as a temp error
+        # Max retries exhausted
         self.datastore.update(release_mbid=record.release_mbid,
                               caa_id=record.caa_id,
                               new_status=CoverStatus.TEMP_ERROR,
