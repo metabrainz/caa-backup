@@ -313,14 +313,14 @@ class CAAImporter:
                             logging.info(f"Updated import timestamp to: {latest_ts}")
                         else:
                             logging.warning("Could not fetch latest date_uploaded from Postgres.")
-                    print(f"\nIncremental import complete. New records imported: {total_imported}")
+                    logging.info(f"Incremental import complete. New records imported: {total_imported}")
 
         except psycopg2.Error as e:
-            print(f"PostgreSQL query error: {e}")
+            logging.error(f"PostgreSQL query error: {e}")
         finally:
             if self.pg_conn:
                 self.pg_conn.close()
-                print("PostgreSQL connection closed.")
+                logging.info("PostgreSQL connection closed.")
 
 
 # -----------------------------------------------------------------------------
@@ -340,19 +340,19 @@ def main(incremental):
     
     pg_conn_string = os.getenv('PG_CONN_STRING')
     db_path = os.getenv('DB_PATH')
-    print("CAA importer config:")
-    print("  pg conn: '%s'" % pg_conn_string)
-    print("  db path: '%s'" % db_path)
-    print("  incremental: %s" % incremental)
+    logging.info("CAA importer config:")
+    logging.info("  pg conn: '%s'" % pg_conn_string)
+    logging.info("  db path: '%s'" % db_path)
+    logging.info("  incremental: %s" % incremental)
     
     # For full import, check that database doesn't exist
     if not incremental and os.path.exists(db_path):
-        print("The DB file %s exists. Please remove it before running this command, or use --incremental flag.")
+        logging.error("The DB file %s exists. Please remove it before running this command, or use --incremental flag." % db_path)
         sys.exit(-1)
 
     # For incremental import, database should exist
     if incremental and not os.path.exists(db_path):
-        print("Database file %s not found. Run a full import first (without --incremental flag).")
+        logging.error("Database file %s not found. Run a full import first (without --incremental flag)." % db_path)
         sys.exit(-1)
 
     try:
@@ -360,7 +360,7 @@ def main(incremental):
 
         if hasattr(consul_config, 'PG_CONN_STRING') and consul_config.PG_CONN_STRING:
             pg_conn_string = consul_config.PG_CONN_STRING
-            print("pg conn string: '%s'" % pg_conn_string)
+            logging.info("pg conn string: '%s'" % pg_conn_string)
     except ImportError:
         pass
 
