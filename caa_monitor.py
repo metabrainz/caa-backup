@@ -89,7 +89,7 @@ class CAAServiceMonitor(threading.Thread):
             port (int): The port to listen on.
         """
         # Call the parent class's constructor.
-        super().__init__()
+        super().__init__(daemon=True)
         # Set the server address.
         self.server_address = (host, port)
         # Create the HTTP server instance using the custom server class.
