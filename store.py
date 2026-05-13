@@ -181,21 +181,6 @@ class CAABackupDataStore:
         finally:
             self.db.close()
 
-    def add(self, caa_id: int, release_mbid: str, status: CoverStatus, mime_type: str, error: str = None):
-        """Adds a new record to the database."""
-        try:
-            with self.db.atomic():
-                self.model.create(
-                    caa_id=caa_id, 
-                    release_mbid=release_mbid, 
-                    status=status.value, 
-                    mime_type=mime_type,
-                    error=error
-                )
-            logging.info(f"Successfully added record for CAA ID: {caa_id}")
-        except peewee.IntegrityError:
-            logging.error(f"Error: A record with CAA ID {caa_id} already exists.")
-
     def bulk_add(self, records: list):
         """
         Adds multiple records to the database in a single transaction.
