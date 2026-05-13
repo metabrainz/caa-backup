@@ -349,22 +349,22 @@ def main():
     pg_conn_string = os.getenv('PG_CONN_STRING')
     
     if not db_path:
-        print("Error: DB_PATH environment variable is not set.")
+        logging.error("DB_PATH environment variable is not set.")
         return
     if not images_dir:
-        print("Error: IMAGES_DIR environment variable is not set.")
+        logging.error("IMAGES_DIR environment variable is not set.")
         return
     if not pg_conn_string:
-        print("Error: PG_CONN_STRING environment variable is not set.")
+        logging.error("PG_CONN_STRING environment variable is not set.")
         return
 
     try:
         download_threads = int(download_threads)
     except ValueError:
-        print("Warning: DOWNLOAD_THREADS must be an integer. Defaulting to 8.")
+        logging.warning("DOWNLOAD_THREADS must be an integer. Defaulting to 8.")
         download_threads = 8
     if download_threads <= 0:
-        print("Warning: DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
+        logging.warning("DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
 
 
