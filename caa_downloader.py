@@ -65,7 +65,6 @@ class CAADownloader:
         self.total = 0
         self.downloaded = 0
         self.errors = 0
-        self.pbar = None  # No longer used
         self.lock = Lock()
         self._shutdown_requested = False
         
