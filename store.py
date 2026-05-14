@@ -5,16 +5,16 @@
 # This version has been updated to include the mime_type field while
 # retaining the original function signatures and class names.
 
-import peewee
 import enum
-import time
 import logging
-from typing import List, Tuple
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+import time
+from typing import List
+
+import peewee
 
 # Define a constant for the database retry delay
 DB_RETRY_DELAY_SECONDS = 1
+
 
 # -----------------------------------------------------------------------------
 # Define the Enum for the record status.
@@ -25,10 +25,12 @@ class CoverStatus(enum.Enum):
     TEMP_ERROR = 2
     PERMANENT_ERROR = 3
 
+
 # -----------------------------------------------------------------------------
 # Define the PeeWee Model for our table.
 # -----------------------------------------------------------------------------
 db = peewee.SqliteDatabase(None)
+
 
 class CAABackup(peewee.Model):
     """
@@ -41,10 +43,11 @@ class CAABackup(peewee.Model):
     - error: An optional text field to store error messages if the backup fails.
     - mime_type: The MIME type of the cover art image.
     - date_uploaded: The timestamp when the image was uploaded to CAA.
-    
+
     Note: The unique index on caa_id is added after bulk import is complete
     to improve import performance. Use create_caa_id_index() method after import.
     """
+
     caa_id = peewee.BigIntegerField(primary_key=False, null=False)  # No primary key, index added later
     release_mbid = peewee.TextField(null=False)
     status = peewee.IntegerField(null=False)
@@ -54,13 +57,13 @@ class CAABackup(peewee.Model):
 
     class Meta:
         database = db  # This tells the model which database to use
-        table_name = 'caa_backup'
+        table_name = "caa_backup"
 
     @property
     def status_enum(self):
         """Returns the status as a CoverStatus enum member."""
         return CoverStatus(self.status)
-    
+
     @classmethod
     def has_caa_id_index(cls):
         """
@@ -71,20 +74,20 @@ class CAABackup(peewee.Model):
             # Query SQLite's index list to check for caa_id index
             cursor = db.execute_sql("PRAGMA index_list(caa_backup)")
             indexes = cursor.fetchall()
-            
+
             for index in indexes:
                 index_name = index[1]  # Index name
-                is_unique = index[2]   # Unique flag (1 if unique, 0 if not)
-                
+                is_unique = index[2]  # Unique flag (1 if unique, 0 if not)
+
                 # Check if this is our caa_id index
-                if 'caa_id' in index_name and is_unique == 1:
+                if "caa_id" in index_name and is_unique == 1:
                     return True
-            
+
             return False
         except Exception as e:
             logging.error(f"Error checking caa_id index status: {e}")
             return False
-    
+
     @classmethod
     def create_caa_id_index(cls):
         """
@@ -96,39 +99,57 @@ class CAABackup(peewee.Model):
         if cls.has_caa_id_index():
             logging.info("Unique index on caa_id already exists")
             return
-            
+
         try:
             with db.atomic():
                 logging.info("Creating unique index on caa_id...")
-                
+
                 # Create unique index on caa_id column
                 db.execute_sql("CREATE UNIQUE INDEX idx_caa_backup_caa_id ON caa_backup (caa_id)")
-                
+
                 logging.info("Unique index on caa_id created successfully")
-                
+
         except Exception as e:
             logging.error(f"Error creating unique index on caa_id: {e}")
             raise
 
+
 class ImportTimestamp(peewee.Model):
     """
     Represents the 'import_timestamp' table to track the last import operation.
-    
+
     Fields:
     - id: Primary key (auto-increment).
     - last_import_date: The timestamp of the last successful import.
     """
+
     id = peewee.AutoField(primary_key=True)
     last_import_date = peewee.DateTimeField(null=False)
-    
+
     class Meta:
         database = db
-        table_name = 'import_timestamp'
+        table_name = "import_timestamp"
+
 
 # -----------------------------------------------------------------------------
 # The main class for the data store project.
 # -----------------------------------------------------------------------------
 class CAABackupDataStore:
+    """
+    A simple data store for managing CAA backup statuses using PeeWee.
+    """
+
+    def __init__(self, db_path="caa_backup.db"):
+        """
+        Initializes the data store.
+
+        Args:
+            db_path (str): The path to the SQLite database file.
+        """
+        self.db = db
+        self.db.init(db_path)
+        self.db.pragma("journal_mode", "wal")
+        self.model = CAABackup
 
     def fetch_latest_date_uploaded(self, pg_conn):
         """
@@ -144,19 +165,6 @@ class CAABackupDataStore:
         if max_date_uploaded:
             return max_date_uploaded
         return None
-    """
-    A simple data store for managing CAA backup statuses using PeeWee.
-    """
-    def __init__(self, db_path='caa_backup.db'):
-        """
-        Initializes the data store.
-
-        Args:
-            db_path (str): The path to the SQLite database file.
-        """
-        self.db = db
-        self.db.init(db_path)
-        self.model = CAABackup
 
     def create(self):
         """
@@ -181,21 +189,6 @@ class CAABackupDataStore:
         finally:
             self.db.close()
 
-    def add(self, caa_id: int, release_mbid: str, status: CoverStatus, mime_type: str, error: str = None):
-        """Adds a new record to the database."""
-        try:
-            with self.db.atomic():
-                self.model.create(
-                    caa_id=caa_id, 
-                    release_mbid=release_mbid, 
-                    status=status.value, 
-                    mime_type=mime_type,
-                    error=error
-                )
-            logging.info(f"Successfully added record for CAA ID: {caa_id}")
-        except peewee.IntegrityError:
-            logging.error(f"Error: A record with CAA ID {caa_id} already exists.")
-
     def bulk_add(self, records: list):
         """
         Adds multiple records to the database in a single transaction.
@@ -210,14 +203,17 @@ class CAABackupDataStore:
             return
 
         # Convert enum status to integer value and include mime_type and date_uploaded
-        records_for_db = [{
-            'caa_id': r['caa_id'],
-            'release_mbid': r['release_mbid'],
-            'status': r['status'].value,
-            'mime_type': r['mime_type'],
-            'date_uploaded': r.get('date_uploaded'),
-            'error': r.get('error')
-        } for r in records]
+        records_for_db = [
+            {
+                "caa_id": r["caa_id"],
+                "release_mbid": r["release_mbid"],
+                "status": r["status"].value,
+                "mime_type": r["mime_type"],
+                "date_uploaded": r.get("date_uploaded"),
+                "error": r.get("error"),
+            }
+            for r in records
+        ]
 
         try:
             with self.db.atomic():
@@ -230,14 +226,11 @@ class CAABackupDataStore:
         while True:
             try:
                 return self.model.get_or_none(self.model.caa_id == caa_id)
-            except peewee.OperationalError as e:
-                logging.error(f"Database error: {e}")
-                return None
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise err
+                raise
 
     def get_batch(self, status: CoverStatus = CoverStatus.NOT_DOWNLOADED, count: int = 100):
         """
@@ -249,17 +242,17 @@ class CAABackupDataStore:
         """
         while True:
             try:
-                return self.model.select().where(
-                    self.model.status == status.value
-                ).order_by(self.model.release_mbid).limit(count)
-            except peewee.OperationalError as e:
-                logging.error(f"Database error: {e}")
-                return []
+                return (
+                    self.model.select()
+                    .where(self.model.status == status.value)
+                    .order_by(self.model.release_mbid)
+                    .limit(count)
+                )
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise err
+                raise
 
     def update(self, caa_id: int, release_mbid: str, new_status: CoverStatus, error: str = None):
         """Updates the status and error for a specific record."""
@@ -273,6 +266,7 @@ class CAABackupDataStore:
                 return
             except self.model.DoesNotExist:
                 logging.error(f"Error: Record with CAA ID {caa_id} not found.")
+                return
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
@@ -311,9 +305,7 @@ class CAABackupDataStore:
         while True:
             try:
                 with self.db.atomic():
-                    self.model.update(
-                        status=CoverStatus.NOT_DOWNLOADED.value
-                    ).execute()
+                    self.model.update(status=CoverStatus.NOT_DOWNLOADED.value).execute()
                 return
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
@@ -327,14 +319,14 @@ class CAABackupDataStore:
             try:
                 # We need to query for both temporary and permanent errors
                 return self.model.select().where(
-                    (self.model.status == CoverStatus.TEMP_ERROR.value) |
-                    (self.model.status == CoverStatus.PERMANENT_ERROR.value)
+                    (self.model.status == CoverStatus.TEMP_ERROR.value)
+                    | (self.model.status == CoverStatus.PERMANENT_ERROR.value)
                 )
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
                     continue
-                raise []
+                raise
 
     def get_undownloaded_count(self):
         """
@@ -342,9 +334,7 @@ class CAABackupDataStore:
         """
         while True:
             try:
-                return self.model.select().where(
-                    self.model.status == CoverStatus.NOT_DOWNLOADED.value
-                ).count()
+                return self.model.select().where(self.model.status == CoverStatus.NOT_DOWNLOADED.value).count()
             except peewee.OperationalError as err:
                 if "database is locked" in str(err):
                     time.sleep(DB_RETRY_DELAY_SECONDS)
@@ -361,9 +351,7 @@ class CAABackupDataStore:
         for status_enum in CoverStatus:
             while True:
                 try:
-                    count = self.model.select().where(
-                        self.model.status == status_enum.value
-                    ).count()
+                    count = self.model.select().where(self.model.status == status_enum.value).count()
                     counts[status_enum.name] = count
                     break
                 except peewee.OperationalError as err:
