@@ -10,20 +10,22 @@
 #
 # You must also ensure that the 'store.py' file is in the same directory.
 
+import logging
 import os
-import peewee
 import sys
 import time
-import psycopg2
+
 import click
-import logging
+import psycopg2
 from dotenv import load_dotenv
+
 from store import CAABackupDataStore, CoverStatus
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
 # Log progress every N seconds
 IMPORT_PROGRESS_INTERVAL = 10
+
 
 # -----------------------------------------------------------------------------
 # The main class for the import project.
@@ -33,6 +35,7 @@ class CAAImporter:
     A class to handle importing data from a PostgreSQL database into
     a local SQLite data store.
     """
+
     def __init__(self, pg_conn_string: str, db_path: str, batch_size: int = 20000):
         """
         Initializes the importer with a PostgreSQL connection string.
@@ -80,13 +83,13 @@ class CAAImporter:
         records_dict = []
         for row in records_tuples:
             record = {
-                'caa_id': row[0],
-                'release_mbid': row[1],
-                'mime_type': row[2],
-                'status': CoverStatus.NOT_DOWNLOADED
+                "caa_id": row[0],
+                "release_mbid": row[1],
+                "mime_type": row[2],
+                "status": CoverStatus.NOT_DOWNLOADED,
             }
             if include_date:
-                record['date_uploaded'] = row[3]
+                record["date_uploaded"] = row[3]
             records_dict.append(record)
 
         return records_dict
@@ -97,10 +100,10 @@ class CAAImporter:
         into the CAABackupDataStore in batches with a progress bar.
         """
         logging.info("Starting import process...")
-        
+
         # Initialize the data store's table
         self.datastore.create()
-        
+
         # Connect to PostgreSQL once
         if not self.connect_to_postgres():
             logging.error("Import failed due to database connection error.")
@@ -124,7 +127,7 @@ class CAAImporter:
                                  JOIN musicbrainz.release r
                                    ON caa.release = r.id
                              ORDER BY r.gid"""
-                logging.info(f"Executing query to fetch data...")
+                logging.info("Executing query to fetch data...")
                 cursor.execute(data_query)
 
                 # Open the datastore connection once for the entire import process.
@@ -161,6 +164,7 @@ class CAAImporter:
             # After successful import, create unique index on caa_id for optimal query performance
             logging.info("Creating unique index on caa_id for optimal query performance...")
             from store import CAABackup
+
             with self.datastore:
                 CAABackup.create_caa_id_index()
 
@@ -177,10 +181,10 @@ class CAAImporter:
         the date_uploaded timestamp. Updates the local timestamp after successful import.
         """
         logging.info("Starting incremental import process...")
-        
+
         # Initialize the data store's table
         self.datastore.create()
-        
+
         # Connect to PostgreSQL once
         if not self.connect_to_postgres():
             logging.error("Incremental import failed due to database connection error.")
@@ -204,7 +208,7 @@ class CAAImporter:
                                      JOIN musicbrainz.release r
                                        ON caa.release = r.id
                                      WHERE caa.date_uploaded > %s"""
-                    
+
                     data_query = """SELECT caa.id, r.gid, caa.mime_type, caa.date_uploaded
                                      FROM cover_art_archive.cover_art caa
                                      JOIN musicbrainz.release r
@@ -218,7 +222,7 @@ class CAAImporter:
                                      FROM cover_art_archive.cover_art caa
                                      JOIN musicbrainz.release r
                                        ON caa.release = r.id"""
-                    
+
                     data_query = """SELECT caa.id, r.gid, caa.mime_type, caa.date_uploaded
                                      FROM cover_art_archive.cover_art caa
                                      JOIN musicbrainz.release r
@@ -230,16 +234,16 @@ class CAAImporter:
                 with self.pg_conn.cursor() as cursor:
                     cursor.execute(count_query, query_params)
                     total_records = cursor.fetchone()[0]
-                
+
                 if total_records == 0:
                     logging.info("No new records found to import.")
                     return
-                
+
                 logging.info(f"Found {total_records:,} new records to import.")
-                
+
                 # Use a new cursor for the main data query
                 with self.pg_conn.cursor() as cursor:
-                    logging.info(f"Executing query to fetch new data...")
+                    logging.info("Executing query to fetch new data...")
                     cursor.execute(data_query, query_params)
 
                     total_imported = 0
@@ -255,9 +259,9 @@ class CAAImporter:
 
                         # Track the latest date_uploaded for updating our timestamp
                         for record in records:
-                            if record['date_uploaded']:
-                                if latest_date_uploaded is None or record['date_uploaded'] > latest_date_uploaded:
-                                    latest_date_uploaded = record['date_uploaded']
+                            if record["date_uploaded"]:
+                                if latest_date_uploaded is None or record["date_uploaded"] > latest_date_uploaded:
+                                    latest_date_uploaded = record["date_uploaded"]
 
                         # Use the datastore's `bulk_add` function
                         try:
@@ -295,27 +299,29 @@ class CAAImporter:
 # Main entry point for the script
 # -----------------------------------------------------------------------------
 @click.command()
-@click.option('--incremental', is_flag=True, help='Run incremental import (fetch only new records since last import)')
+@click.option("--incremental", is_flag=True, help="Run incremental import (fetch only new records since last import)")
 def main(incremental):
     """
     Script to import data from a PostgreSQL database into a local SQLite datastore.
     Configuration is read from a .env file.
-    
+
     Use --incremental flag to import only records uploaded since the last import.
     """
     # Load environment variables from a .env file
     load_dotenv()
-    
-    pg_conn_string = os.getenv('PG_CONN_STRING')
-    db_path = os.getenv('DB_PATH')
+
+    pg_conn_string = os.getenv("PG_CONN_STRING")
+    db_path = os.getenv("DB_PATH")
     logging.info("CAA importer config:")
     logging.info("  pg conn: '%s'" % pg_conn_string)
     logging.info("  db path: '%s'" % db_path)
     logging.info("  incremental: %s" % incremental)
-    
+
     # For full import, check that database doesn't exist
     if not incremental and os.path.exists(db_path):
-        logging.error("The DB file %s exists. Please remove it before running this command, or use --incremental flag." % db_path)
+        logging.error(
+            "The DB file %s exists. Please remove it before running this command, or use --incremental flag." % db_path
+        )
         sys.exit(-1)
 
     # For incremental import, database should exist
@@ -326,7 +332,7 @@ def main(incremental):
     try:
         import consul_config
 
-        if hasattr(consul_config, 'PG_CONN_STRING') and consul_config.PG_CONN_STRING:
+        if hasattr(consul_config, "PG_CONN_STRING") and consul_config.PG_CONN_STRING:
             pg_conn_string = consul_config.PG_CONN_STRING
             logging.info("pg conn string: '%s'" % pg_conn_string)
     except ImportError:
@@ -336,21 +342,18 @@ def main(incremental):
     if not pg_conn_string:
         click.echo("Error: PG_CONN_STRING environment variable is not set.", err=True)
         return
-    
+
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
         return
 
-    importer = CAAImporter(
-        pg_conn_string=pg_conn_string,
-        db_path=db_path,
-        batch_size=1000
-    )
-    
+    importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path, batch_size=1000)
+
     if incremental:
         importer.run_import_incremental()
     else:
         importer.run_import()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

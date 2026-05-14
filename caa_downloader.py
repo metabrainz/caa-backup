@@ -12,24 +12,23 @@
 # You must also ensure that the 'store.py' file is in the same directory and
 # that your .env file has the necessary configuration.
 
-import os
-import requests
-import click
-import time
-import signal
-import shutil
-from collections import deque
-from dotenv import load_dotenv
-from store import CAABackupDataStore, CoverStatus
 import logging
+import os
+import shutil
+import signal
+import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 
+import click
+import requests
+from dotenv import load_dotenv
 
-from caa_monitor import CAAServiceMonitor
 from caa_importer import CAAImporter
+from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
-
+from store import CAABackupDataStore, CoverStatus
 
 # How often to check for new images (in seconds)
 UPDATE_FREQUENCY = 3600  # 1 hour
@@ -58,7 +57,7 @@ class CAADownloader:
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
         self.images_dir = images_dir
-        self.headers = {'User-Agent': 'Cover Art Archive Backup (rob at metabrainz)'}
+        self.headers = {"User-Agent": "Cover Art Archive Backup (rob at metabrainz)"}
         self.batch_size = batch_size
         self.download_threads = download_threads
         self.total = 0
@@ -66,9 +65,9 @@ class CAADownloader:
         self.errors = 0
         self.lock = Lock()
         self._shutdown_requested = False
-        
+
         # Queue to track download completion times for rate calculation
-        self.download_times = deque(maxlen=25) 
+        self.download_times = deque(maxlen=25)
 
         # Ensure the base download directory exists
         if not os.path.exists(self.images_dir):
@@ -78,20 +77,20 @@ class CAADownloader:
     def get_download_rate(self):
         """
         Calculate the current download rate based on recent download completion times.
-        
+
         Returns:
             float: Downloads per second, or 0 if insufficient data
         """
         with self.lock:
             if len(self.download_times) < 2:
                 return 0.0
-            
+
             # Calculate time elapsed since the oldest recorded download
             time_elapsed = self.download_times[-1] - self.download_times[0]
-            
+
             if time_elapsed <= 0:
                 return 0.0
-            
+
             # Rate = number of downloads / time elapsed
             return (len(self.download_times) - 1) / time_elapsed
 
@@ -109,9 +108,7 @@ class CAADownloader:
                 used_percent = (used / total * 100) if total else 0
                 return total, free, used, used_percent
             except Exception as exc:
-                logging.warning(
-                    "Failed to get disk usage for images_dir '%s': %s", self.images_dir, exc
-                )
+                logging.warning("Failed to get disk usage for images_dir '%s': %s", self.images_dir, exc)
         return None, None, None, None
 
     def estimate_seconds_before_full(self, download_rate, used_bytes, total_bytes, downloaded):
@@ -154,9 +151,7 @@ class CAADownloader:
 
         download_rate = self.get_download_rate()
         total, free, used, used_percent = self.get_disk_usage_stats()
-        seconds_before_full = self.estimate_seconds_before_full(
-            download_rate, used, total, self.downloaded
-        )
+        seconds_before_full = self.estimate_seconds_before_full(download_rate, used, total, self.downloaded)
         seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
         return {
             "total_to_download": self.total,
@@ -174,7 +169,7 @@ class CAADownloader:
         """
         Private method to download and save a single image record.
         This method is designed to be run in a separate thread.
-        
+
         Returns the release_mbid and caa_id on completion.
         """
         # The record object must have 'mbid' and 'caa_id' attributes
@@ -187,10 +182,10 @@ class CAADownloader:
             return None, None
 
         # The mime_type attribute is also expected for correct file extension.
-        if hasattr(record, 'mime_type') and record.mime_type:
-            extension = 'jpg' if record.mime_type == 'image/jpeg' else record.mime_type.split('/')[-1]
+        if hasattr(record, "mime_type") and record.mime_type:
+            extension = "jpg" if record.mime_type == "image/jpeg" else record.mime_type.split("/")[-1]
         else:
-            extension = 'jpg'
+            extension = "jpg"
 
         url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.{extension}"
 
@@ -198,7 +193,6 @@ class CAADownloader:
         mbid_prefix_2 = release_mbid[1]
         target_dir = os.path.join(self.images_dir, mbid_prefix_1, mbid_prefix_2)
         os.makedirs(target_dir, exist_ok=True)
-
 
         filename = f"{release_mbid}-{caa_id}.{extension}"
         filepath = os.path.join(target_dir, filename)
@@ -211,8 +205,8 @@ class CAADownloader:
             response = requests.get(url, headers=self.headers, timeout=30)
             response.raise_for_status()
 
-            tmp_filepath = filepath + '.tmp'
-            with open(tmp_filepath, 'wb') as f:
+            tmp_filepath = filepath + ".tmp"
+            with open(tmp_filepath, "wb") as f:
                 f.write(response.content)
             os.replace(tmp_filepath, filepath)
 
@@ -224,21 +218,27 @@ class CAADownloader:
             else:
                 status = CoverStatus.TEMP_ERROR
                 error = str(e)
-            self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+            self.datastore.update(
+                release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error
+            )
             return None, None
 
         except requests.exceptions.RequestException as e:
             status = CoverStatus.TEMP_ERROR
             error = str(e)
             logging.error(str(e))
-            self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+            self.datastore.update(
+                release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error
+            )
             return None, None
 
         # Retry loop for DB update only (handles transient locks)
         max_retries = 5
         for attempt in range(max_retries):
             try:
-                self.datastore.update(release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error)
+                self.datastore.update(
+                    release_mbid=record.release_mbid, caa_id=record.caa_id, new_status=status, error=error
+                )
 
                 with self.lock:
                     self.download_times.append(time.time())
@@ -252,10 +252,12 @@ class CAADownloader:
                     return None, None
 
         # Max retries exhausted
-        self.datastore.update(release_mbid=record.release_mbid,
-                              caa_id=record.caa_id,
-                              new_status=CoverStatus.TEMP_ERROR,
-                              error="Max retries reached due to database lock.")
+        self.datastore.update(
+            release_mbid=record.release_mbid,
+            caa_id=record.caa_id,
+            new_status=CoverStatus.TEMP_ERROR,
+            error="Max retries reached due to database lock.",
+        )
         return None, None
 
     def run_downloader(self):
@@ -268,15 +270,15 @@ class CAADownloader:
         with self.datastore:
             # Fetch existing status counts from database to set initial values
             status_counts = self.datastore.get_status_counts()
-            self.downloaded = status_counts.get('DOWNLOADED', 0)
-            self.errors = status_counts.get('TEMP_ERROR', 0) + status_counts.get('PERMANENT_ERROR', 0)
+            self.downloaded = status_counts.get("DOWNLOADED", 0)
+            self.errors = status_counts.get("TEMP_ERROR", 0) + status_counts.get("PERMANENT_ERROR", 0)
             self.total = sum(status_counts.values())
-            
+
             logging.info("%d files downloaded" % self.downloaded)
             logging.info("%d errors" % self.errors)
             logging.info("%d to download" % self.total)
-            
-            logging.info(f"Starting threads...")
+
+            logging.info("Starting threads...")
             try:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     total_to_download = self.total
@@ -285,7 +287,9 @@ class CAADownloader:
                     start_time = time.time()
                     last_log = start_time
                     while not self._shutdown_requested:
-                        records_to_download = self.datastore.get_batch(status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size)
+                        records_to_download = self.datastore.get_batch(
+                            status=CoverStatus.NOT_DOWNLOADED, count=self.batch_size
+                        )
 
                         if not records_to_download:
                             break
@@ -313,7 +317,10 @@ class CAADownloader:
                             if now - last_log >= DOWNLOAD_PROGRESS_INTERVAL:
                                 download_rate = self.get_download_rate()
                                 rate_str = f" {download_rate:.2f}/sec " if download_rate > 0 else ""
-                                logging.info(f"Downloaded: {self.downloaded} / {total_to_download} {rate_str} Errors: {self.errors}")
+                                logging.info(
+                                    f"Downloaded: {self.downloaded} / {total_to_download}"
+                                    f" {rate_str}Errors: {self.errors}"
+                                )
                                 last_log = now
 
                     # Final progress log
@@ -326,12 +333,10 @@ class CAADownloader:
             return
 
 
-
 # -----------------------------------------------------------------------------
 # Main entry point for the script
 # -----------------------------------------------------------------------------
 @click.command()
-
 def main():
     """
     Script to download missing cover art from a remote server.
@@ -341,12 +346,12 @@ def main():
 
     load_dotenv()
 
-    db_path = os.getenv('DB_PATH')
-    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
-    download_threads = os.getenv('DOWNLOAD_THREADS', '8')
-    monitor_port = int(os.getenv('MONITOR_PORT', '8080'))
-    pg_conn_string = os.getenv('PG_CONN_STRING')
-    
+    db_path = os.getenv("DB_PATH")
+    images_dir = os.getenv("IMAGES_DIR") or os.getenv("CACHE_DIR") or os.getenv("BACKUP_DIR")
+    download_threads = os.getenv("DOWNLOAD_THREADS", "8")
+    monitor_port = int(os.getenv("MONITOR_PORT", "8080"))
+    pg_conn_string = os.getenv("PG_CONN_STRING")
+
     if not db_path:
         logging.error("DB_PATH environment variable is not set.")
         return
@@ -366,7 +371,6 @@ def main():
         logging.warning("DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
 
-
     logging.info("Current config")
     logging.info("  db_path: %s" % db_path)
     logging.info("  images_dir: %s" % images_dir)
@@ -376,11 +380,11 @@ def main():
         logging.info("No database was found. Running caa_importer to create and populate the DB...")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import()
-        
+
         logging.info("DB import complete. Start local file scan....")
         verify = CAAVerifier(db_path=db_path, images_dir=images_dir)
         verify.run_verifier()
-        
+
     logging.info("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, images_dir=images_dir, download_threads=download_threads)
@@ -417,5 +421,6 @@ def main():
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

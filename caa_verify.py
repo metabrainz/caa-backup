@@ -5,13 +5,16 @@
 # updates the status of records for which a corresponding file exists in the
 # cache to 'DOWNLOADED' in batches to improve performance and memory usage.
 
-import os
-import click
-import time
 import logging
-from dotenv import load_dotenv
-from store import CAABackupDataStore
+import os
+import time
 from typing import List
+
+import click
+from dotenv import load_dotenv
+
+from store import CAABackupDataStore
+
 # How often to log verification progress (in seconds)
 VERIFY_PROGRESS_INTERVAL = 10
 
@@ -22,7 +25,7 @@ VERIFY_PROGRESS_INTERVAL = 10
 def chunk_list(data: list, size: int):
     """Yield successive n-sized chunks from a list."""
     for i in range(0, len(data), size):
-        yield data[i:i + size]
+        yield data[i : i + size]
 
 
 # -----------------------------------------------------------------------------
@@ -59,7 +62,7 @@ class CAAVerifier:
         for root, _, files in os.walk(self.images_dir):
             for file in files:
                 # Filename format: "mbid-uuid-caa_id.ext"
-                parts = os.path.splitext(file)[0].split('-')
+                parts = os.path.splitext(file)[0].split("-")
                 if len(parts) >= 6:
                     try:
                         caa_id = int(parts[5])
@@ -135,8 +138,8 @@ def main():
     # Load environment variables from a .env file
     load_dotenv()
 
-    db_path = os.getenv('DB_PATH')
-    images_dir = os.getenv('IMAGES_DIR') or os.getenv('CACHE_DIR') or os.getenv('BACKUP_DIR')
+    db_path = os.getenv("DB_PATH")
+    images_dir = os.getenv("IMAGES_DIR") or os.getenv("CACHE_DIR") or os.getenv("BACKUP_DIR")
 
     if not db_path:
         click.echo("Error: DB_PATH environment variable is not set.", err=True)
@@ -150,5 +153,5 @@ def main():
     verifier.run_verifier()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
