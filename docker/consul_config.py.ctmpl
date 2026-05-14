@@ -1,7 +1,8 @@
-{{if service "pgbouncer-slave"}}
-{{with index (service "pgbouncer-slave") 0}}
+{{- with service "pgbouncer-slave"}}{{with index . 0 -}}
 PG_CONN_STRING = 'postgresql://musicbrainz_ro@{{.Address}}:{{.Port}}/musicbrainz_db'
-{{end}}
-{{else}}
+{{- end}}{{else -}}
+{{- with service "pgbouncer-master"}}{{with index . 0 -}}
+PG_CONN_STRING = 'postgresql://musicbrainz_ro@{{.Address}}:{{.Port}}/musicbrainz_db'
+{{- end}}{{else -}}
 PG_CONN_STRING = ""
-{{end}}
+{{- end}}{{end}}
