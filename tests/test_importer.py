@@ -111,3 +111,52 @@ def test_incremental_import_connection_failure(mock_connect, importer):
 
     # Should not raise, just log and return
     imp.run_import_incremental()
+
+
+@patch("caa_importer.psycopg2.connect")
+def test_incremental_import_updates_timestamp_even_with_duplicates(mock_connect, importer):
+    """Timestamp advances even if all records are duplicates (already imported)."""
+    imp, ds = importer
+
+    old_ts = datetime(2025, 5, 1, 0, 0, 0, tzinfo=timezone.utc)
+    ds.update_import_timestamp(old_ts)
+
+    # Pre-insert the record that will come from PostgreSQL
+    ds.bulk_add(
+        [
+            {
+                "caa_id": 5000,
+                "release_mbid": "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+                "mime_type": "image/jpeg",
+                "status": CoverStatus.NOT_DOWNLOADED,
+            },
+        ]
+    )
+
+    new_ts = datetime(2025, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+
+    mock_conn = MagicMock()
+    mock_connect.return_value = mock_conn
+
+    mock_count_cursor = MagicMock()
+    mock_count_cursor.fetchone.return_value = (1,)
+
+    # Return the same record (will be a duplicate)
+    mock_data_cursor = MagicMock()
+    mock_data_cursor.fetchmany.side_effect = [
+        [(5000, "aaaa-bbbb-cccc-dddd-eeeeeeeeeeee", "image/jpeg", new_ts)],
+        [],
+    ]
+
+    mock_max_cursor = MagicMock()
+    mock_max_cursor.fetchone.return_value = (new_ts,)
+
+    mock_conn.cursor.return_value.__enter__ = MagicMock(
+        side_effect=[mock_count_cursor, mock_data_cursor, mock_max_cursor]
+    )
+    mock_conn.cursor.return_value.__exit__ = MagicMock(return_value=False)
+
+    imp.run_import_incremental()
+
+    # Timestamp should have advanced despite the duplicate
+    assert ds.get_last_import_timestamp() == new_ts
