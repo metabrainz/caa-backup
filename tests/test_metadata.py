@@ -225,7 +225,7 @@ def test_metadata_fetcher_nothing_to_fetch(db_setup, tmp_path):
     with gzip.open(meta_path, "wt", encoding="utf-8") as f:
         json.dump({"result": []}, f)
 
-    fetcher = MetadataFetcher(images_dir=images_dir, datastore=ds, rate_limit=0)
+    fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
     fetcher.run()
 
     assert fetcher.fetched == 0

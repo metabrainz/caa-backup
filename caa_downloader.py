@@ -190,8 +190,11 @@ class CAADownloader:
         # Fetch metadata if we don't have it yet
         meta_file = metadata_path(self.images_dir, release_mbid)
         if not os.path.exists(meta_file):
-            if not fetch_and_save_metadata(self.images_dir, release_mbid):
-                return None  # Can't verify, not an error
+            # Re-check with lock to avoid multiple threads fetching the same release
+            with self.lock:
+                if not os.path.exists(meta_file):
+                    if not fetch_and_save_metadata(self.images_dir, release_mbid):
+                        return None  # Can't verify, not an error
 
         metadata = load_metadata(self.images_dir, release_mbid)
         if not metadata:
@@ -458,26 +461,33 @@ def main():
         if sleep_time > 0:
             logging.info(f"Idle time: {int(sleep_time)}s — running background tasks...")
 
-            # Fetch IA metadata for releases that don't have it yet
-            fetcher = MetadataFetcher(images_dir=images_dir, datastore=downloader.datastore, rate_limit=1.0)
+            # Run metadata fetch and integrity checks in parallel
+            fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
             fetcher._shutdown_requested = downloader._shutdown_requested
-            fetcher.run(max_fetches=int(sleep_time * 0.4))  # Use ~40% of idle time
-            downloader.metadata_fetched += fetcher.fetched
 
-            if not downloader._shutdown_requested:
-                # Run integrity checks with remaining time
-                checker = IntegrityChecker(
-                    images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
-                )
-                checker._shutdown_requested = downloader._shutdown_requested
-                failures = checker.run(max_checks=int(sleep_time * 2))  # Size-only checks are fast
-                downloader.integrity_checked += checker.checked
-                downloader.integrity_failures += len(failures)
+            checker = IntegrityChecker(
+                images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
+            )
+            checker._shutdown_requested = downloader._shutdown_requested
 
-            # Sleep any remaining time
+            from threading import Thread
+
+            fetch_thread = Thread(
+                target=fetcher.run, kwargs={"max_fetches": int(sleep_time * 0.8), "stats": downloader}, daemon=True
+            )
+            check_thread = Thread(
+                target=checker.run, kwargs={"max_checks": int(sleep_time * 5), "stats": downloader}, daemon=True
+            )
+            fetch_thread.start()
+            check_thread.start()
+
+            # Wait for both or until next cycle
             remaining = next_cycle - time.time()
-            if remaining > 0 and not downloader._shutdown_requested:
-                time.sleep(remaining)
+            while remaining > 0 and not downloader._shutdown_requested:
+                if not fetch_thread.is_alive() and not check_thread.is_alive():
+                    break
+                time.sleep(min(5, remaining))
+                remaining = next_cycle - time.time()
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
