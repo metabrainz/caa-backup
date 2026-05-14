@@ -127,6 +127,8 @@ On service change, consul-template sends SIGHUP → process restarts with new co
 ```
 /data/caa-backup/
 ├── caa-backup.db          # SQLite tracking database
+├── caa-backup.db-wal      # SQLite write-ahead log (WAL mode)
+├── caa-backup.db-shm      # SQLite shared memory (WAL mode)
 └── caa-backup/            # Images directory
     ├── .metadata_progress # Metadata fetch progress tracker
     ├── a/
