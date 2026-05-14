@@ -19,6 +19,7 @@ Repository = "https://github.com/metabrainz/caa-backup"
 
 [dependency-groups]
 dev = [
+    "pre-commit>=4.0",
     "pytest>=8.0",
     "ruff>=0.15.0",
     "ty>=0.0.1a1",

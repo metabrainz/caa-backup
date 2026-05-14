@@ -55,10 +55,8 @@ class CAAImporter:
         Establishes a connection to the PostgreSQL database.
         Returns the connection object if successful, otherwise None.
         """
-        logging.info("Connecting to PostgreSQL...")
         try:
             self.pg_conn = psycopg2.connect(self.pg_conn_string)
-            logging.info("Successfully connected to PostgreSQL.")
             return self.pg_conn
         except psycopg2.Error as e:
             logging.error(f"PostgreSQL connection error: {e}")
@@ -127,7 +125,6 @@ class CAAImporter:
                                  JOIN musicbrainz.release r
                                    ON caa.release = r.id
                              ORDER BY r.gid"""
-                logging.info("Executing query to fetch data...")
                 cursor.execute(data_query)
 
                 # Open the datastore connection once for the entire import process.
@@ -173,7 +170,6 @@ class CAAImporter:
         finally:
             if self.pg_conn:
                 self.pg_conn.close()
-                logging.info("PostgreSQL connection closed.")
 
     def run_import_incremental(self):
         """
@@ -197,7 +193,6 @@ class CAAImporter:
 
                 if last_import_date:
                     logging.info(f"Last import was at: {last_import_date}")
-                    logging.info("Fetching records uploaded since then...")
                 else:
                     logging.info("No previous import found, importing all records...")
 
@@ -243,7 +238,6 @@ class CAAImporter:
 
                 # Use a new cursor for the main data query
                 with self.pg_conn.cursor() as cursor:
-                    logging.info("Executing query to fetch new data...")
                     cursor.execute(data_query, query_params)
 
                     total_imported = 0
@@ -292,7 +286,6 @@ class CAAImporter:
         finally:
             if self.pg_conn:
                 self.pg_conn.close()
-                logging.info("PostgreSQL connection closed.")
 
 
 # -----------------------------------------------------------------------------
