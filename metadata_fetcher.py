@@ -249,21 +249,24 @@ class IntegrityChecker:
                     filepath = os.path.join(root, f"{parsed['release_mbid']}-{parsed['caa_id']}.{parsed['ext']}")
                     error = verify_file_integrity(filepath, entry, check_md5=self.check_md5)
                     if error:
-                        failures.append((filepath, error))
-                        logging.warning(f"Integrity check failed: {filepath}: {error}")
-                        if stats:
-                            stats.integrity_failures += 1
+                        if error == "file missing":
+                            logging.debug(f"File not on disk (likely deleted from CAA): {filepath}")
+                        else:
+                            failures.append((filepath, error))
+                            logging.warning(f"Integrity check failed: {filepath}: {error}")
+                            if stats:
+                                stats.integrity_failures += 1
 
-                        # Mark for re-download if datastore is available
-                        if self.datastore and error != "file missing":
-                            from store import CoverStatus
+                            # Mark for re-download if datastore is available
+                            if self.datastore:
+                                from store import CoverStatus
 
-                            self.datastore.update(
-                                caa_id=parsed["caa_id"],
-                                release_mbid=release_mbid,
-                                new_status=CoverStatus.NOT_DOWNLOADED,
-                                error=f"integrity: {error}",
-                            )
+                                self.datastore.update(
+                                    caa_id=parsed["caa_id"],
+                                    release_mbid=release_mbid,
+                                    new_status=CoverStatus.NOT_DOWNLOADED,
+                                    error=f"integrity: {error}",
+                                )
 
                     self.checked += 1
                     if stats:
