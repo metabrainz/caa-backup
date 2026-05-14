@@ -474,6 +474,11 @@ def main():
                 fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
                 fetcher._shutdown_requested = downloader._shutdown_requested
                 fetcher.run(deadline=next_cycle, stats=downloader)
+
+            # Sleep any remaining time
+            remaining = next_cycle - time.time()
+            if remaining > 0 and not downloader._shutdown_requested:
+                time.sleep(remaining)
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
