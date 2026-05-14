@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 from caa_importer import CAAImporter
 from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
-from helpers import build_download_url, build_image_path, extension_from_mime
+from helpers import USER_AGENT, build_download_url, build_image_path, extension_from_mime
 from metadata_fetcher import IntegrityChecker, MetadataFetcher
 from store import CAABackupDataStore, CoverStatus
 
@@ -59,7 +59,7 @@ class CAADownloader:
         """
         self.datastore = CAABackupDataStore(db_path=db_path)
         self.images_dir = images_dir
-        self.headers = {"User-Agent": "Cover Art Archive Backup (rob at metabrainz)"}
+        self.headers = {"User-Agent": USER_AGENT}
         self.batch_size = batch_size
         self.download_threads = download_threads
         self.total = 0

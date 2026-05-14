@@ -16,10 +16,9 @@ import time
 
 import requests
 
-from helpers import parse_ia_filename, release_dir
+from helpers import USER_AGENT, parse_ia_filename, release_dir
 
 IA_METADATA_URL = "https://archive.org/metadata/mbid-{release_mbid}/files"
-USER_AGENT = "Cover Art Archive Backup (rob at metabrainz)"
 
 
 def metadata_path(images_dir: str, release_mbid: str) -> str:

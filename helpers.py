@@ -3,6 +3,8 @@
 import os
 import re
 
+USER_AGENT = "Cover Art Archive Backup (admins@metabrainz.org)"
+
 # Regex for local filenames: {release_mbid}-{caa_id}.{ext}
 LOCAL_FILENAME_RE = re.compile(r"^(?P<release_mbid>[0-9a-f-]{36})-(?P<caa_id>\d+)\.(?P<ext>\w+)$")
 
