@@ -151,11 +151,12 @@ class MetadataFetcher:
 
         return needing
 
-    def run(self, max_fetches: int | None = None):
+    def run(self, max_fetches: int | None = None, stats=None):
         """Fetch metadata for releases that need it.
 
         Args:
             max_fetches: Stop after this many fetches (None = no limit).
+            stats: Object with metadata_fetched attribute to update in real-time.
         """
         mbids = self.get_releases_needing_metadata()
         self.fetched = 0
@@ -174,6 +175,8 @@ class MetadataFetcher:
 
             if fetch_and_save_metadata(self.images_dir, mbid):
                 self.fetched += 1
+                if stats:
+                    stats.metadata_fetched += 1
             else:
                 errors += 1
 
@@ -200,10 +203,13 @@ class IntegrityChecker:
         self.rate_limit = rate_limit
         self._shutdown_requested = False
 
-    def run(self, max_checks: int | None = None):
+    def run(self, max_checks: int | None = None, stats=None):
         """Walk images and verify against metadata.
 
         Returns list of (filepath, error_description) tuples for failures.
+        Args:
+            max_checks: Stop after this many checks (None = no limit).
+            stats: Object with integrity_checked/integrity_failures attributes to update in real-time.
         """
         failures = []
         self.checked = 0
@@ -245,6 +251,8 @@ class IntegrityChecker:
                     if error:
                         failures.append((filepath, error))
                         logging.warning(f"Integrity check failed: {filepath}: {error}")
+                        if stats:
+                            stats.integrity_failures += 1
 
                         # Mark for re-download if datastore is available
                         if self.datastore and error != "file missing":
@@ -258,6 +266,8 @@ class IntegrityChecker:
                             )
 
                     self.checked += 1
+                    if stats:
+                        stats.integrity_checked += 1
                     if self.rate_limit:
                         time.sleep(self.rate_limit)
 

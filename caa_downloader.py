@@ -461,8 +461,7 @@ def main():
             # Fetch IA metadata for releases that don't have it yet
             fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
             fetcher._shutdown_requested = downloader._shutdown_requested
-            fetcher.run(max_fetches=int(sleep_time * 0.4))  # Use ~40% of idle time
-            downloader.metadata_fetched += fetcher.fetched
+            fetcher.run(max_fetches=int(sleep_time * 0.4), stats=downloader)
 
             if not downloader._shutdown_requested:
                 # Run integrity checks with remaining time
@@ -470,9 +469,7 @@ def main():
                     images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
                 )
                 checker._shutdown_requested = downloader._shutdown_requested
-                failures = checker.run(max_checks=int(sleep_time * 2))  # Size-only checks are fast
-                downloader.integrity_checked += checker.checked
-                downloader.integrity_failures += len(failures)
+                checker.run(max_checks=int(sleep_time * 2), stats=downloader)
 
             # Sleep any remaining time
             remaining = next_cycle - time.time()
