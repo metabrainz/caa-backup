@@ -104,3 +104,68 @@ def test_missing_attributes(db_setup, tmp_path):
     del record.release_mbid
     result = dl._download_and_save_record(record)
     assert result == (None, None)
+
+
+@patch("caa_downloader.requests.get")
+def test_download_verifies_against_metadata(mock_get, db_setup, tmp_path):
+    """Successful download is verified against IA metadata if available."""
+    import gzip
+    import json
+
+    dl = _make_downloader(db_setup, tmp_path)
+
+    # Pre-create metadata with expected size
+    from metadata_fetcher import metadata_path
+
+    meta_file = metadata_path(dl.images_dir, MBID)
+    os.makedirs(os.path.dirname(meta_file), exist_ok=True)
+    metadata = {"result": [{"name": f"mbid-{MBID}-1000.jpg", "size": "15", "md5": "abc"}]}
+    with gzip.open(meta_file, "wt", encoding="utf-8") as f:
+        json.dump(metadata, f)
+
+    # Download returns content matching expected size
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = b"x" * 15  # matches expected size
+    mock_response.raise_for_status = MagicMock()
+    mock_get.return_value = mock_response
+
+    result = dl._download_and_save_record(_make_record())
+    assert result == (MBID, 1000)
+
+    with dl.datastore:
+        record_db = dl.datastore.get(1000)
+        assert record_db.status == CoverStatus.DOWNLOADED.value
+
+
+@patch("caa_downloader.requests.get")
+def test_download_fails_verification_size_mismatch(mock_get, db_setup, tmp_path):
+    """Download marked as TEMP_ERROR if size doesn't match metadata."""
+    import gzip
+    import json
+
+    dl = _make_downloader(db_setup, tmp_path)
+
+    # Pre-create metadata expecting size 1000
+    from metadata_fetcher import metadata_path
+
+    meta_file = metadata_path(dl.images_dir, MBID)
+    os.makedirs(os.path.dirname(meta_file), exist_ok=True)
+    metadata = {"result": [{"name": f"mbid-{MBID}-1000.jpg", "size": "1000", "md5": "abc"}]}
+    with gzip.open(meta_file, "wt", encoding="utf-8") as f:
+        json.dump(metadata, f)
+
+    # Download returns content with wrong size
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.content = b"short"  # doesn't match expected 1000
+    mock_response.raise_for_status = MagicMock()
+    mock_get.return_value = mock_response
+
+    result = dl._download_and_save_record(_make_record())
+    assert result == (MBID, 1000)  # still returns success (file was written)
+
+    with dl.datastore:
+        record_db = dl.datastore.get(1000)
+        assert record_db.status == CoverStatus.TEMP_ERROR.value
+        assert "integrity" in record_db.error

@@ -29,6 +29,7 @@ from caa_importer import CAAImporter
 from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
 from helpers import build_download_url, build_image_path, extension_from_mime
+from metadata_fetcher import IntegrityChecker, MetadataFetcher
 from store import CAABackupDataStore, CoverStatus
 
 # How often to check for new images (in seconds)
@@ -64,6 +65,9 @@ class CAADownloader:
         self.total = 0
         self.downloaded = 0
         self.errors = 0
+        self.metadata_fetched = 0
+        self.integrity_checked = 0
+        self.integrity_failures = 0
         self.lock = Lock()
         self._shutdown_requested = False
 
@@ -164,7 +168,41 @@ class CAADownloader:
             "disk_used_percent": used_percent,
             "seconds_before_full": seconds_before_full,
             "seconds_before_completed": seconds_before_completed,
+            "metadata_fetched": self.metadata_fetched,
+            "integrity_checked": self.integrity_checked,
+            "integrity_failures": self.integrity_failures,
         }
+
+    def _verify_after_download(self, release_mbid: str, caa_id: int, filepath: str, extension: str) -> str | None:
+        """Verify a just-downloaded file against IA metadata.
+
+        Fetches metadata if not already present. Returns None if OK or
+        metadata unavailable, or an error string if verification fails.
+        """
+        from metadata_fetcher import (
+            fetch_and_save_metadata,
+            get_expected_file_info,
+            load_metadata,
+            metadata_path,
+            verify_file_integrity,
+        )
+
+        # Fetch metadata if we don't have it yet
+        meta_file = metadata_path(self.images_dir, release_mbid)
+        if not os.path.exists(meta_file):
+            if not fetch_and_save_metadata(self.images_dir, release_mbid):
+                return None  # Can't verify, not an error
+
+        metadata = load_metadata(self.images_dir, release_mbid)
+        if not metadata:
+            return None
+
+        ia_filename = f"mbid-{release_mbid}-{caa_id}.{extension}"
+        expected = get_expected_file_info(metadata, ia_filename)
+        if not expected:
+            return None  # File not in metadata (shouldn't happen, but not an error)
+
+        return verify_file_integrity(filepath, expected, check_md5=False)
 
     def _download_and_save_record(self, record):
         """
@@ -225,6 +263,14 @@ class CAADownloader:
 
         # Retry loop for DB update only (handles transient locks)
         max_retries = 5
+
+        # Verify download against IA metadata if available
+        integrity_error = self._verify_after_download(release_mbid, caa_id, filepath, extension)
+        if integrity_error:
+            status = CoverStatus.TEMP_ERROR
+            error = f"integrity: {integrity_error}"
+            logging.warning(f"Post-download verification failed for {filepath}: {integrity_error}")
+
         for attempt in range(max_retries):
             try:
                 self.datastore.update(
@@ -410,8 +456,28 @@ def main():
         next_cycle = ((int(now) // UPDATE_FREQUENCY) + 1) * UPDATE_FREQUENCY
         sleep_time = max(0, next_cycle - now) if elapsed < UPDATE_FREQUENCY else 0
         if sleep_time > 0:
-            logging.info(f"Cycle finished early, sleeping {int(sleep_time)} seconds until the next update...")
-            time.sleep(sleep_time)
+            logging.info(f"Idle time: {int(sleep_time)}s — running background tasks...")
+
+            # Fetch IA metadata for releases that don't have it yet
+            fetcher = MetadataFetcher(images_dir=images_dir, datastore=downloader.datastore, rate_limit=1.0)
+            fetcher._shutdown_requested = downloader._shutdown_requested
+            fetcher.run(max_fetches=int(sleep_time * 0.4))  # Use ~40% of idle time
+            downloader.metadata_fetched += fetcher.fetched
+
+            if not downloader._shutdown_requested:
+                # Run integrity checks with remaining time
+                checker = IntegrityChecker(
+                    images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
+                )
+                checker._shutdown_requested = downloader._shutdown_requested
+                failures = checker.run(max_checks=int(sleep_time * 2))  # Size-only checks are fast
+                downloader.integrity_checked += checker.checked
+                downloader.integrity_failures += len(failures)
+
+            # Sleep any remaining time
+            remaining = next_cycle - time.time()
+            if remaining > 0 and not downloader._shutdown_requested:
+                time.sleep(remaining)
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 

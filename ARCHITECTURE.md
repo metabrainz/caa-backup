@@ -93,7 +93,10 @@ startup:
     loop (hourly):
         incremental import (new records since last timestamp)
         download any new pending images
-        sleep until next hour
+        idle time:
+            fetch IA metadata for releases missing it (~1 req/sec)
+            run integrity checks on files with metadata (size comparison)
+            sleep remaining time
 ```
 
 ## Configuration
@@ -128,15 +131,24 @@ On service change, consul-template sends SIGHUP → process restarts with new co
     ├── a/
     │   ├── a/
     │   │   ├── aa123456-...-12345.jpg
+    │   │   ├── aa123456-....meta.json.gz   # IA metadata (gzipped)
     │   │   └── aa789012-...-67890.png
     │   ├── b/
-    │   │   └── ab5245f6-...-1347928453932.jpg
+    │   │   ├── ab5245f6-...-1347928453932.jpg
+    │   │   └── ab5245f6-....meta.json.gz
     │   └── ...
     ├── b/
     └── ...
 ```
 
 Two-level prefix directories (first two chars of MBID) distribute files across 256 directories, avoiding filesystem performance issues with millions of files in one directory.
+
+### Metadata Files
+
+Each release can have a `.meta.json.gz` file containing the full Internet Archive
+file listing (md5, sha1, crc32, size for each file in the IA item). These are
+fetched during idle time and used for integrity verification. The metadata is
+stored compressed alongside the images — no database state required.
 
 ## Error Handling
 
@@ -146,6 +158,7 @@ Two-level prefix directories (first two chars of MBID) distribute files across 2
 - **Database locked** → retry with exponential backoff (up to 5 attempts)
 - **SIGTERM** → sets shutdown flag, in-flight downloads finish, process exits cleanly
 - **Crash during write** → `.tmp` file left on disk, final file never created, DB still says `NOT_DOWNLOADED`, next run retries
+- **Integrity check failure** → record marked as `NOT_DOWNLOADED`, corrupt file will be overwritten on next download cycle
 
 ## Monitoring
 
@@ -164,10 +177,25 @@ HTTP endpoint at `:{MONITOR_PORT}/status` returns JSON:
 }
 ```
 
+## Disaster Recovery
+
+This backup combined with the MusicBrainz PostgreSQL database contains everything
+needed to fully reconstruct the Cover Art Archive:
+
+- **Images:** All original-size files are on disk
+- **Metadata:** Image types (front, back, booklet, etc.), comments, ordering, and
+  edit history are in PostgreSQL (`cover_art_archive.*` tables)
+- **index.json:** The per-release JSON served by the CAA API can be regenerated
+  from PostgreSQL (same logic as [artwork-indexer](https://github.com/metabrainz/artwork-indexer))
+- **Thumbnails:** Can be regenerated from the original images
+
+The only data not recoverable are images that were deleted from both IA and
+MusicBrainz before being backed up.
+
 ## Known Limitations
 
 - **Deleted images not cleaned up** — if an image is removed from CAA, the local copy remains. ~22K orphaned files currently exist (~0.3% of total).
-- **No checksum verification** — files are not verified against a known hash. A truncated file that got its final name (pre-atomic-write era) would pass verification.
+- **Metadata backfill is slow** — at 1 req/sec during idle time, backfilling metadata for all ~2.5M existing releases takes ~29 days. New releases are covered immediately.
 - **No resume within a file** — large images that timeout are re-downloaded from scratch.
 
 ## Development

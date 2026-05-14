@@ -12,6 +12,7 @@ import time
 import click
 from dotenv import load_dotenv
 
+from helpers import parse_local_filename
 from store import CAABackupDataStore
 
 # How often to log verification progress (in seconds)
@@ -52,13 +53,9 @@ class CAAVerifier:
 
         for root, _, files in os.walk(self.images_dir):
             for file in files:
-                parts = os.path.splitext(file)[0].split("-")
-                if len(parts) >= 6:
-                    try:
-                        caa_id = int(parts[5])
-                        batch.append(caa_id)
-                    except (ValueError, IndexError):
-                        continue
+                parsed = parse_local_filename(file)
+                if parsed:
+                    batch.append(parsed["caa_id"])
 
                 processed += 1
 

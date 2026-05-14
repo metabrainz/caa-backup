@@ -57,6 +57,9 @@ def test_stats_returns_expected_keys(db_setup, tmp_path):
         "disk_used_percent",
         "seconds_before_full",
         "seconds_before_completed",
+        "metadata_fetched",
+        "integrity_checked",
+        "integrity_failures",
     }
     assert set(stats.keys()) == expected_keys
 
