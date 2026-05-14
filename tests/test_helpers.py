@@ -39,3 +39,34 @@ def test_build_image_path():
 def test_build_image_path_png():
     path = build_image_path("/data", "ff123456-0000-1111-2222-333344445555", 999, "png")
     assert path == "/data/f/f/ff123456-0000-1111-2222-333344445555-999.png"
+
+
+from helpers import parse_ia_filename, parse_local_filename
+
+
+def test_parse_local_filename():
+    result = parse_local_filename("ab5245f6-ae8d-49a5-be42-6347f6c0330e-1347928453932.jpg")
+    assert result == {"release_mbid": "ab5245f6-ae8d-49a5-be42-6347f6c0330e", "caa_id": 1347928453932, "ext": "jpg"}
+
+
+def test_parse_local_filename_png():
+    result = parse_local_filename("ff123456-0000-1111-2222-333344445555-999.png")
+    assert result == {"release_mbid": "ff123456-0000-1111-2222-333344445555", "caa_id": 999, "ext": "png"}
+
+
+def test_parse_local_filename_invalid():
+    assert parse_local_filename("random.txt") is None
+    assert parse_local_filename("short-name.jpg") is None
+    assert parse_local_filename(".hidden") is None
+    assert parse_local_filename("ab5245f6-ae8d-49a5-be42-6347f6c0330e-1000.jpg.tmp") is None
+
+
+def test_parse_ia_filename():
+    result = parse_ia_filename("mbid-ab5245f6-ae8d-49a5-be42-6347f6c0330e-1347928453932.jpg")
+    assert result == {"release_mbid": "ab5245f6-ae8d-49a5-be42-6347f6c0330e", "caa_id": 1347928453932, "ext": "jpg"}
+
+
+def test_parse_ia_filename_invalid():
+    assert parse_ia_filename("__ia_thumb.jpg") is None
+    assert parse_ia_filename("history/files/index.json") is None
+    assert parse_ia_filename("ab5245f6-ae8d-49a5-be42-6347f6c0330e-1000.jpg") is None  # missing mbid- prefix
