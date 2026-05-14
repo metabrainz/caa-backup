@@ -229,3 +229,217 @@ def test_metadata_fetcher_nothing_to_fetch(db_setup, tmp_path):
     fetcher.run()
 
     assert fetcher.fetched == 0
+
+
+def test_metadata_fetcher_progress(tmp_path, monkeypatch):
+    """MetadataFetcher resumes from saved progress."""
+    from metadata_fetcher import MetadataFetcher
+
+    monkeypatch.setenv("DIR_DEPTH", "2")
+    images_dir = str(tmp_path / "images")
+
+    # Create releases in two different prefix dirs
+    for prefix in ["a/a", "a/b", "f/f"]:
+        d = os.path.join(images_dir, *prefix.split("/"))
+        os.makedirs(d, exist_ok=True)
+        mbid = f"{prefix.replace('/', '')}5245f6-ae8d-49a5-be42-6347f6c0330e"
+        with open(os.path.join(d, f"{mbid}-1000.jpg"), "wb") as f:
+            f.write(b"img")
+
+    # First run with a very short deadline — should process some and save progress
+    from unittest.mock import patch
+
+    call_count = 0
+
+    def mock_fetch(images_dir, release_mbid, timeout=30):
+        nonlocal call_count
+        call_count += 1
+        # Create the metadata file
+        path = os.path.join(images_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with gzip.open(path, "wt") as f:
+            json.dump({"result": []}, f)
+        return True
+
+    with patch("metadata_fetcher.fetch_and_save_metadata", side_effect=mock_fetch):
+        fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
+        fetcher.run()
+
+    assert call_count == 3  # All three releases fetched
+
+    # Progress file should be deleted after a complete pass
+    progress_path = os.path.join(images_dir, ".metadata_progress")
+    assert not os.path.exists(progress_path)
+
+
+def test_metadata_fetcher_resumes_after_progress(tmp_path, monkeypatch):
+    """MetadataFetcher skips already-processed prefixes."""
+    from metadata_fetcher import MetadataFetcher
+
+    monkeypatch.setenv("DIR_DEPTH", "2")
+    images_dir = str(tmp_path / "images")
+
+    # Create releases in a/a and f/f
+    for prefix, char in [("a/a", "a"), ("f/f", "f")]:
+        d = os.path.join(images_dir, *prefix.split("/"))
+        os.makedirs(d, exist_ok=True)
+        mbid = f"{char}{char}5245f6-ae8d-49a5-be42-6347f6c0330e"
+        with open(os.path.join(d, f"{mbid}-1000.jpg"), "wb") as f:
+            f.write(b"img")
+
+    # Write progress as if we already processed up to "a/a"
+    progress_path = os.path.join(images_dir, ".metadata_progress")
+    with open(progress_path, "w") as f:
+        f.write("2:a/a")
+
+    from unittest.mock import patch
+
+    fetched_mbids = []
+
+    def mock_fetch(images_dir, release_mbid, timeout=30):
+        fetched_mbids.append(release_mbid)
+        path = os.path.join(images_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with gzip.open(path, "wt") as f:
+            json.dump({"result": []}, f)
+        return True
+
+    with patch("metadata_fetcher.fetch_and_save_metadata", side_effect=mock_fetch):
+        fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
+        fetcher.run()
+
+    # Should only fetch f/f release (a/a was already processed)
+    assert len(fetched_mbids) == 1
+    assert fetched_mbids[0].startswith("ff")
+
+
+def test_metadata_fetcher_partial_pass_saves_progress(tmp_path, monkeypatch):
+    """Progress is saved when interrupted mid-pass (via shutdown flag)."""
+    from metadata_fetcher import MetadataFetcher
+
+    monkeypatch.setenv("DIR_DEPTH", "2")
+    images_dir = str(tmp_path / "images")
+
+    # Create releases in three prefixes
+    for prefix in ["0/0", "0/1", "f/f"]:
+        d = os.path.join(images_dir, *prefix.split("/"))
+        os.makedirs(d, exist_ok=True)
+        mbid = f"{prefix.replace('/', '')}5245f6-ae8d-49a5-be42-6347f6c0330e"
+        with open(os.path.join(d, f"{mbid}-1000.jpg"), "wb") as f:
+            f.write(b"img")
+
+    from unittest.mock import patch
+
+    fetch_count = [0]
+
+    def mock_fetch(img_dir, release_mbid, timeout=30):
+        fetch_count[0] += 1
+        # After first fetch, request shutdown
+        if fetch_count[0] >= 1:
+            fetcher._shutdown_requested = True
+        path = os.path.join(img_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with gzip.open(path, "wt") as f:
+            json.dump({"result": []}, f)
+        return True
+
+    with patch("metadata_fetcher.fetch_and_save_metadata", side_effect=mock_fetch):
+        fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
+        fetcher.run()
+
+    # Should have fetched only 1 (shutdown after first)
+    assert fetcher.fetched == 1
+
+    # Progress should be saved (partial pass)
+    progress_path = os.path.join(images_dir, ".metadata_progress")
+    assert os.path.exists(progress_path)
+    with open(progress_path) as f:
+        content = f.read()
+    assert content == "2:0/0"  # saved at first prefix
+
+
+def test_metadata_fetcher_full_pass_resets_progress(tmp_path, monkeypatch):
+    """Progress file is deleted after a complete pass."""
+    from metadata_fetcher import MetadataFetcher
+
+    monkeypatch.setenv("DIR_DEPTH", "2")
+    images_dir = str(tmp_path / "images")
+
+    # Create one release
+    d = os.path.join(images_dir, "a", "b")
+    os.makedirs(d)
+    mbid = "ab5245f6-ae8d-49a5-be42-6347f6c0330e"
+    with open(os.path.join(d, f"{mbid}-1000.jpg"), "wb") as f:
+        f.write(b"img")
+
+    # Write a pre-existing progress file
+    progress_path = os.path.join(images_dir, ".metadata_progress")
+    with open(progress_path, "w") as f:
+        f.write("2:0/0")
+
+    from unittest.mock import patch
+
+    def mock_fetch(img_dir, release_mbid, timeout=30):
+        path = os.path.join(img_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with gzip.open(path, "wt") as f:
+            json.dump({"result": []}, f)
+        return True
+
+    with patch("metadata_fetcher.fetch_and_save_metadata", side_effect=mock_fetch):
+        fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
+        fetcher.run()
+
+    assert fetcher.fetched == 1
+    # Progress file should be deleted (full pass complete)
+    assert not os.path.exists(progress_path)
+
+
+def test_metadata_fetcher_deadline_stops_and_saves(tmp_path, monkeypatch):
+    """Deadline interruption saves progress at the last completed prefix."""
+    import time as time_mod
+
+    from metadata_fetcher import MetadataFetcher
+
+    monkeypatch.setenv("DIR_DEPTH", "2")
+    images_dir = str(tmp_path / "images")
+
+    # Create releases in 0/0 and f/f
+    for prefix in ["0/0", "f/f"]:
+        d = os.path.join(images_dir, *prefix.split("/"))
+        os.makedirs(d, exist_ok=True)
+        mbid = f"{prefix.replace('/', '')}5245f6-ae8d-49a5-be42-6347f6c0330e"
+        with open(os.path.join(d, f"{mbid}-1000.jpg"), "wb") as f:
+            f.write(b"img")
+
+    from unittest.mock import patch
+
+    fetch_count = [0]
+    fake_time = [time_mod.time()]
+
+    def mock_fetch(img_dir, release_mbid, timeout=30):
+        fetch_count[0] += 1
+        # Simulate time passing past deadline after first fetch
+        fake_time[0] += 9999
+        path = os.path.join(img_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with gzip.open(path, "wt") as f:
+            json.dump({"result": []}, f)
+        return True
+
+    def mock_time():
+        return fake_time[0]
+
+    with (
+        patch("metadata_fetcher.fetch_and_save_metadata", side_effect=mock_fetch),
+        patch("metadata_fetcher.time.time", side_effect=mock_time),
+    ):
+        fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=0)
+        fetcher.run(deadline=time_mod.time() + 5)
+
+    # Should have fetched only 1 (deadline expired after first)
+    assert fetch_count[0] == 1
+
+    # Progress should be saved
+    progress_path = os.path.join(images_dir, ".metadata_progress")
+    assert os.path.exists(progress_path)
