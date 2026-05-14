@@ -343,6 +343,15 @@ def main():
     monitor_port = int(os.getenv("MONITOR_PORT", "8080"))
     pg_conn_string = os.getenv("PG_CONN_STRING")
 
+    # In Docker, PG_CONN_STRING is provided by consul-template via consul_config.py
+    try:
+        import consul_config
+
+        if hasattr(consul_config, "PG_CONN_STRING") and consul_config.PG_CONN_STRING:
+            pg_conn_string = consul_config.PG_CONN_STRING
+    except ImportError:
+        pass
+
     if not db_path:
         logging.error("DB_PATH environment variable is not set.")
         return
@@ -350,7 +359,7 @@ def main():
         logging.error("IMAGES_DIR environment variable is not set.")
         return
     if not pg_conn_string:
-        logging.error("PG_CONN_STRING environment variable is not set.")
+        logging.error("PG_CONN_STRING is not set (check env or consul_config).")
         return
 
     try:
