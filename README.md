@@ -96,6 +96,9 @@ The container runs `caa_downloader.py` which operates in a loop:
 # Install with dev dependencies
 uv sync --group dev
 
+# Install pre-commit hooks
+pre-commit install
+
 # Lint
 uv run ruff check .
 

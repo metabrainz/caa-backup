@@ -1,4 +1,4 @@
 #!/bin/bash
 
 cd /code/caa-backup
-uv run python3 caa_downloader.py
+exec uv run --no-dev python3 caa_downloader.py

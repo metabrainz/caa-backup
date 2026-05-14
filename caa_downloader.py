@@ -257,19 +257,20 @@ class CAADownloader:
         and saves the corresponding images using a thread pool.
         """
 
-        logging.info("Starting cover art download ...")
         with self.datastore:
             # Fetch existing status counts from database to set initial values
             status_counts = self.datastore.get_status_counts()
             self.downloaded = status_counts.get("DOWNLOADED", 0)
             self.errors = status_counts.get("TEMP_ERROR", 0) + status_counts.get("PERMANENT_ERROR", 0)
             self.total = sum(status_counts.values())
+            pending = status_counts.get("NOT_DOWNLOADED", 0)
 
-            logging.info("%d files downloaded" % self.downloaded)
-            logging.info("%d errors" % self.errors)
-            logging.info("%d to download" % self.total)
+            if pending == 0:
+                logging.info("No pending downloads.")
+                return
 
-            logging.info("Starting threads...")
+            logging.info(f"Download status: {self.downloaded:,} done, {self.errors:,} errors, {pending:,} pending")
+
             try:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     total_to_download = self.total
@@ -314,13 +315,11 @@ class CAADownloader:
                                 )
                                 last_log = now
 
-                    # Final progress log
-                    logging.info(f"Downloaded: {self.downloaded} / {total_to_download} (Errors: {self.errors})")
-                    logging.info(f"This session: {downloaded_this_session} downloaded, {errors_this_session} errors")
+                    logging.info(
+                        f"Session complete: {downloaded_this_session} downloaded, {errors_this_session} errors"
+                    )
             except KeyboardInterrupt:
                 logging.info("Shutdown requested, waiting for in-flight downloads to finish...")
-
-            logging.info("Download process complete, exiting...")
             return
 
 
@@ -371,21 +370,18 @@ def main():
         logging.warning("DOWNLOAD_THREADS must be greater than 0. Defaulting to 8.")
         download_threads = 8
 
-    logging.info("Current config")
-    logging.info("  db_path: %s" % db_path)
-    logging.info("  images_dir: %s" % images_dir)
-    logging.info("  threads: %d" % download_threads)
+    logging.info(
+        "Config: db_path=%s images_dir=%s threads=%d pg=%s", db_path, images_dir, download_threads, pg_conn_string
+    )
 
     if not os.path.exists(db_path):
-        logging.info("No database was found. Running caa_importer to create and populate the DB...")
+        logging.info("No database found, running initial import...")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import()
 
-        logging.info("DB import complete. Start local file scan....")
+        logging.info("Import complete, scanning local files...")
         verify = CAAVerifier(db_path=db_path, images_dir=images_dir)
         verify.run_verifier()
-
-    logging.info("Database created and populated. Proceeding to download.")
 
     downloader = CAADownloader(db_path=db_path, images_dir=images_dir, download_threads=download_threads)
 
@@ -398,16 +394,14 @@ def main():
     monitor = CAAServiceMonitor(downloader=downloader, port=monitor_port)
     monitor.start()
 
-    logging.info("--- Starting download cycle ---")
     downloader.run_downloader()
     while not downloader._shutdown_requested:
         cycle_start = time.time()
 
-        logging.info("--- Running incremental import to fetch new rows ---")
+        logging.info("Running incremental import...")
         importer = CAAImporter(pg_conn_string=pg_conn_string, db_path=db_path)
         importer.run_import_incremental()
 
-        logging.info("--- Downloading any new images from incremental import ---")
         downloader.run_downloader()
 
         cycle_end = time.time()
