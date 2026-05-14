@@ -16,7 +16,7 @@ import time
 
 import requests
 
-from helpers import parse_ia_filename
+from helpers import parse_ia_filename, release_dir
 
 IA_METADATA_URL = "https://archive.org/metadata/mbid-{release_mbid}/files"
 USER_AGENT = "Cover Art Archive Backup (rob at metabrainz)"
@@ -24,9 +24,7 @@ USER_AGENT = "Cover Art Archive Backup (rob at metabrainz)"
 
 def metadata_path(images_dir: str, release_mbid: str) -> str:
     """Return the path where metadata for a release should be stored."""
-    prefix_1 = release_mbid[0]
-    prefix_2 = release_mbid[1]
-    return os.path.join(images_dir, prefix_1, prefix_2, f"{release_mbid}.meta.json.gz")
+    return os.path.join(release_dir(images_dir, release_mbid), f"{release_mbid}.meta.json.gz")
 
 
 def fetch_and_save_metadata(images_dir: str, release_mbid: str, timeout: int = 30) -> bool:
