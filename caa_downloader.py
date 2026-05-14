@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from caa_importer import CAAImporter
 from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
+from helpers import build_download_url, build_image_path, extension_from_mime
 from store import CAABackupDataStore, CoverStatus
 
 # How often to check for new images (in seconds)
@@ -181,22 +182,12 @@ class CAADownloader:
             logging.error(f"A record object is missing a required attribute: {e}")
             return None, None
 
-        # The mime_type attribute is also expected for correct file extension.
-        if hasattr(record, "mime_type") and record.mime_type:
-            extension = "jpg" if record.mime_type == "image/jpeg" else record.mime_type.split("/")[-1]
-        else:
-            extension = "jpg"
+        mime_type = getattr(record, "mime_type", None)
+        extension = extension_from_mime(mime_type)
+        url = build_download_url(release_mbid, caa_id, extension)
+        filepath = build_image_path(self.images_dir, release_mbid, caa_id, extension)
 
-        url = f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.{extension}"
-
-        mbid_prefix_1 = release_mbid[0]
-        mbid_prefix_2 = release_mbid[1]
-        target_dir = os.path.join(self.images_dir, mbid_prefix_1, mbid_prefix_2)
-        os.makedirs(target_dir, exist_ok=True)
-
-        filename = f"{release_mbid}-{caa_id}.{extension}"
-        filepath = os.path.join(target_dir, filename)
-
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
         status = CoverStatus.DOWNLOADED
         error = None
 
