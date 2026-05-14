@@ -171,7 +171,7 @@ class CAABackupDataStore:
         Connects to the database and creates the tables if they do not exist.
         """
         try:
-            self.db.connect()
+            self.db.connect(reuse_if_open=True)
             # Create the main backup table
             if not self.model.table_exists():
                 logging.info("Creating table 'caa_backup'...")
@@ -399,7 +399,7 @@ class CAABackupDataStore:
     def __enter__(self):
         """Context manager entry point. Opens the database connection."""
         try:
-            self.db.connect()
+            self.db.connect(reuse_if_open=True)
         except peewee.OperationalError:
             pass
         return self
