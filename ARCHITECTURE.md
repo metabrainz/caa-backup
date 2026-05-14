@@ -168,7 +168,6 @@ HTTP endpoint at `:{MONITOR_PORT}/status` returns JSON:
 
 - **Deleted images not cleaned up** — if an image is removed from CAA, the local copy remains. ~22K orphaned files currently exist (~0.3% of total).
 - **No checksum verification** — files are not verified against a known hash. A truncated file that got its final name (pre-atomic-write era) would pass verification.
-- **Global SQLite singleton** — the `peewee.SqliteDatabase` is module-level, making test isolation tricky.
 - **No resume within a file** — large images that timeout are re-downloaded from scratch.
 
 ## Development

@@ -29,7 +29,7 @@ class CoverStatus(enum.Enum):
 # -----------------------------------------------------------------------------
 # Define the PeeWee Model for our table.
 # -----------------------------------------------------------------------------
-db = peewee.SqliteDatabase(None)
+db = peewee.DatabaseProxy()
 
 
 class CAABackup(peewee.Model):
@@ -146,9 +146,8 @@ class CAABackupDataStore:
         Args:
             db_path (str): The path to the SQLite database file.
         """
-        self.db = db
-        self.db.init(db_path)
-        self.db.pragma("journal_mode", "wal")
+        self.db = peewee.SqliteDatabase(db_path, pragmas={"journal_mode": "wal"})
+        db.initialize(self.db)
         self.model = CAABackup
 
     def fetch_latest_date_uploaded(self, pg_conn):
