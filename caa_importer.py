@@ -270,15 +270,15 @@ class CAAImporter:
                             logging.info(f"Imported: {total_imported} / {total_records}")
                             last_log = now
 
-                    # Update the import timestamp if we imported any records
-                    if total_imported > 0:
-                        # Use the latest date_uploaded from Postgres, not just the last batch
-                        latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
-                        if latest_ts:
-                            self.datastore.update_import_timestamp(latest_ts)
-                            logging.info(f"Updated import timestamp to: {latest_ts}")
-                        else:
-                            logging.warning("Could not fetch latest date_uploaded from Postgres.")
+                    # Always update the timestamp after a successful query,
+                    # even if no records were inserted (e.g. all duplicates).
+                    # This prevents re-querying the same records every cycle.
+                    latest_ts = self.datastore.fetch_latest_date_uploaded(self.pg_conn)
+                    if latest_ts:
+                        self.datastore.update_import_timestamp(latest_ts)
+                        logging.info(f"Updated import timestamp to: {latest_ts}")
+                    else:
+                        logging.warning("Could not fetch latest date_uploaded from Postgres.")
                     logging.info(f"Incremental import complete. New records imported: {total_imported}")
 
         except psycopg2.Error as e:
