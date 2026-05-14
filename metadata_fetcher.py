@@ -16,6 +16,8 @@ import time
 
 import requests
 
+from helpers import parse_ia_filename
+
 IA_METADATA_URL = "https://archive.org/metadata/mbid-{release_mbid}/files"
 USER_AGENT = "Cover Art Archive Backup (rob at metabrainz)"
 
@@ -220,13 +222,11 @@ class IntegrityChecker:
                         return failures
 
                     name = entry.get("name", "")
-                    # Only check original image files (not thumbnails, history, etc.)
-                    if not (
-                        name.startswith(f"mbid-{release_mbid}-") and name.rsplit(".", 1)[-1] in ("jpg", "png", "gif")
-                    ):
+                    parsed = parse_ia_filename(name)
+                    if not parsed or parsed["release_mbid"] != release_mbid:
                         continue
 
-                    filepath = os.path.join(root, name.replace(f"mbid-{release_mbid}-", f"{release_mbid}-"))
+                    filepath = os.path.join(root, f"{parsed['release_mbid']}-{parsed['caa_id']}.{parsed['ext']}")
                     error = verify_file_integrity(filepath, entry, check_md5=self.check_md5)
                     if error:
                         failures.append((filepath, error))
@@ -234,19 +234,14 @@ class IntegrityChecker:
 
                         # Mark for re-download if datastore is available
                         if self.datastore and error != "file missing":
-                            try:
-                                # Extract caa_id from IA filename: mbid-{uuid}-{caa_id}.ext
-                                caa_id = int(name.rsplit(".", 1)[0].split("-")[-1])
-                                from store import CoverStatus
+                            from store import CoverStatus
 
-                                self.datastore.update(
-                                    caa_id=caa_id,
-                                    release_mbid=release_mbid,
-                                    new_status=CoverStatus.NOT_DOWNLOADED,
-                                    error=f"integrity: {error}",
-                                )
-                            except (ValueError, IndexError):
-                                pass
+                            self.datastore.update(
+                                caa_id=parsed["caa_id"],
+                                release_mbid=release_mbid,
+                                new_status=CoverStatus.NOT_DOWNLOADED,
+                                error=f"integrity: {error}",
+                            )
 
                     self.checked += 1
                     if self.rate_limit:

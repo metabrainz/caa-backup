@@ -1,6 +1,41 @@
 """Pure helper functions for CAA backup operations."""
 
 import os
+import re
+
+# Regex for local filenames: {release_mbid}-{caa_id}.{ext}
+LOCAL_FILENAME_RE = re.compile(r"^(?P<release_mbid>[0-9a-f-]{36})-(?P<caa_id>\d+)\.(?P<ext>\w+)$")
+
+# Regex for IA filenames: mbid-{release_mbid}-{caa_id}.{ext}
+IA_FILENAME_RE = re.compile(r"^mbid-(?P<release_mbid>[0-9a-f-]{36})-(?P<caa_id>\d+)\.(?P<ext>\w+)$")
+
+
+def parse_local_filename(filename: str) -> dict | None:
+    """Parse a local image filename into its components.
+
+    >>> parse_local_filename("ab5245f6-ae8d-49a5-be42-6347f6c0330e-1000.jpg")
+    {'release_mbid': 'ab5245f6-ae8d-49a5-be42-6347f6c0330e', 'caa_id': 1000, 'ext': 'jpg'}
+    >>> parse_local_filename("not-a-valid-file.txt") is None
+    True
+    """
+    m = LOCAL_FILENAME_RE.match(filename)
+    if not m:
+        return None
+    return {"release_mbid": m.group("release_mbid"), "caa_id": int(m.group("caa_id")), "ext": m.group("ext")}
+
+
+def parse_ia_filename(filename: str) -> dict | None:
+    """Parse an Internet Archive image filename into its components.
+
+    >>> parse_ia_filename("mbid-ab5245f6-ae8d-49a5-be42-6347f6c0330e-1000.jpg")
+    {'release_mbid': 'ab5245f6-ae8d-49a5-be42-6347f6c0330e', 'caa_id': 1000, 'ext': 'jpg'}
+    >>> parse_ia_filename("__ia_thumb.jpg") is None
+    True
+    """
+    m = IA_FILENAME_RE.match(filename)
+    if not m:
+        return None
+    return {"release_mbid": m.group("release_mbid"), "caa_id": int(m.group("caa_id")), "ext": m.group("ext")}
 
 
 def extension_from_mime(mime_type: str | None) -> str:
