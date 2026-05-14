@@ -1,6 +1,6 @@
 """Tests for helpers.py."""
 
-from helpers import build_download_url, build_image_path, extension_from_mime
+from helpers import build_download_url, build_image_path, extension_from_mime, parse_ia_filename, parse_local_filename
 
 
 def test_extension_from_mime_jpeg():
@@ -41,7 +41,6 @@ def test_build_image_path_png():
     assert path == "/data/f/f/ff123456-0000-1111-2222-333344445555-999.png"
 
 
-from helpers import parse_ia_filename, parse_local_filename
 
 
 def test_parse_local_filename():

@@ -204,9 +204,8 @@ def test_integrity_checker_marks_for_redownload(db_setup, tmp_path):
 
 def test_metadata_fetcher_nothing_to_fetch(db_setup, tmp_path):
     """MetadataFetcher.run() sets fetched=0 when all releases have metadata."""
-    from store import CoverStatus
-
     from metadata_fetcher import MetadataFetcher
+    from store import CoverStatus
 
     ds, db_path = db_setup
     images_dir = str(tmp_path / "images")
