@@ -28,6 +28,9 @@ uv run python manage.py status
 uv run python manage.py import-data
 uv run python manage.py download
 uv run python manage.py verify
+uv run python manage.py fetch-metadata
+uv run python manage.py check-integrity
+uv run python manage.py check-integrity --check-md5
 uv run python manage.py monitor --port 8080
 ```
 

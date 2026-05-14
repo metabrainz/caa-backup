@@ -315,3 +315,84 @@ def status():
 
 if __name__ == "__main__":
     cli()
+
+
+@cli.command()
+@click.option("--max-fetches", default=None, type=int, help="Maximum number of releases to fetch (default: unlimited)")
+@click.option("--rate-limit", default=1.0, type=float, help="Seconds between requests (default: 1.0)")
+def fetch_metadata(max_fetches, rate_limit):
+    """
+    Fetch Internet Archive metadata for releases.
+
+    Downloads IA file metadata (checksums, sizes) and stores as .meta.json.gz
+    alongside the images. Used for integrity verification.
+    """
+    from metadata_fetcher import MetadataFetcher
+
+    images_dir = os.getenv("IMAGES_DIR") or os.getenv("CACHE_DIR") or os.getenv("BACKUP_DIR")
+
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
+        sys.exit(1)
+
+    if not os.path.exists(images_dir):
+        click.echo(f"Error: Images directory '{images_dir}' not found.", err=True)
+        sys.exit(1)
+
+    fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=rate_limit)
+    fetcher.run(max_fetches=max_fetches)
+
+    click.echo(f"Done. Fetched metadata for {fetcher.fetched} releases.")
+
+
+@cli.command()
+@click.option("--check-md5", is_flag=True, help="Also verify MD5 checksums (slow, reads entire file)")
+@click.option("--max-checks", default=None, type=int, help="Maximum number of files to check (default: unlimited)")
+@click.option("--rate-limit", default=0.0, type=float, help="Seconds between checks (default: 0, no delay)")
+def check_integrity(check_md5, max_checks, rate_limit):
+    """
+    Verify local files against Internet Archive metadata.
+
+    Checks file sizes (fast) and optionally MD5 checksums (slow) against
+    stored .meta.json.gz metadata. Reports and marks corrupt files for
+    re-download.
+
+    Requires metadata to be fetched first (use fetch-metadata command).
+    """
+    from metadata_fetcher import IntegrityChecker
+
+    images_dir = os.getenv("IMAGES_DIR") or os.getenv("CACHE_DIR") or os.getenv("BACKUP_DIR")
+    db_path = os.getenv("DB_PATH")
+
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
+        sys.exit(1)
+
+    if not os.path.exists(images_dir):
+        click.echo(f"Error: Images directory '{images_dir}' not found.", err=True)
+        sys.exit(1)
+
+    from store import CAABackupDataStore
+
+    datastore = CAABackupDataStore(db_path=db_path) if db_path and os.path.exists(db_path) else None
+
+    checker = IntegrityChecker(
+        images_dir=images_dir,
+        datastore=datastore,
+        check_md5=check_md5,
+        rate_limit=rate_limit,
+    )
+
+    click.echo(f"Running integrity check (md5={'yes' if check_md5 else 'no'})...")
+    failures = checker.run(max_checks=max_checks)
+
+    click.echo(f"Done. Checked {checker.checked} files, {len(failures)} failures.")
+    if failures:
+        for filepath, error in failures[:20]:
+            click.echo(f"  FAIL: {filepath}: {error}")
+        if len(failures) > 20:
+            click.echo(f"  ... and {len(failures) - 20} more")
+
+
+if __name__ == "__main__":
+    cli()
