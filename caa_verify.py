@@ -8,7 +8,6 @@
 import logging
 import os
 import time
-from typing import List
 
 import click
 from dotenv import load_dotenv
@@ -17,15 +16,6 @@ from store import CAABackupDataStore
 
 # How often to log verification progress (in seconds)
 VERIFY_PROGRESS_INTERVAL = 10
-
-
-# -----------------------------------------------------------------------------
-# Helper function for batching
-# -----------------------------------------------------------------------------
-def chunk_list(data: list, size: int):
-    """Yield successive n-sized chunks from a list."""
-    for i in range(0, len(data), size):
-        yield data[i : i + size]
 
 
 # -----------------------------------------------------------------------------
@@ -49,34 +39,47 @@ class CAAVerifier:
         self.datastore = CAABackupDataStore(db_path=db_path)
         self.images_dir = images_dir
 
-    def _get_caa_ids_from_cache(self) -> List[int]:
+    def _scan_and_update(self, batch_size: int = 1000):
         """
-        Scans the local cache directory and returns a list of all
-        CAA IDs found in filenames. This is a memory-efficient way to
-        build a lookup list for bulk updates.
+        Scans the images directory and updates the database in streaming batches.
+        Avoids building a full list of all caa_ids in memory.
         """
         logging.info("Scanning local images directory for files...")
-        found_caa_ids = []
-        last_log = time.time()
+        batch = []
         processed = 0
+        updated = 0
+        last_log = time.time()
+
         for root, _, files in os.walk(self.images_dir):
             for file in files:
-                # Filename format: "mbid-uuid-caa_id.ext"
                 parts = os.path.splitext(file)[0].split("-")
                 if len(parts) >= 6:
                     try:
                         caa_id = int(parts[5])
-                        found_caa_ids.append(caa_id)
+                        batch.append(caa_id)
                     except (ValueError, IndexError):
                         continue
-                processed += 1
-                now = time.time()
-                if now - last_log >= VERIFY_PROGRESS_INTERVAL:
-                    logging.info(f"Scanned {processed} files...")
-                    last_log = now
 
-        logging.info(f"Finished scanning. Total files processed: {processed}")
-        return found_caa_ids
+                processed += 1
+
+                if len(batch) >= batch_size:
+                    self.datastore.bulk_update_downloaded_status(batch)
+                    updated += len(batch)
+                    batch = []
+
+                if processed % 10000 == 0:
+                    now = time.time()
+                    if now - last_log >= VERIFY_PROGRESS_INTERVAL:
+                        logging.info(f"Scanned {processed} files, updated {updated} records...")
+                        last_log = now
+
+        # Flush remaining batch
+        if batch:
+            self.datastore.bulk_update_downloaded_status(batch)
+            updated += len(batch)
+
+        logging.info(f"Finished scanning. Files processed: {processed}, records updated: {updated}")
+        return updated
 
     def run_verifier(self):
         """
@@ -90,26 +93,8 @@ class CAAVerifier:
             logging.info("Resetting all records to 'NOT_DOWNLOADED' status...")
             self.datastore.mark_all_as_undownloaded()
 
-            # Step 2: Scan the cache and get a list of all found CAA IDs.
-            on_disk_caa_ids = self._get_caa_ids_from_cache()
-
-            # Step 3: Update the status of all found CAA IDs to DOWNLOADED in batches.
-
-            if on_disk_caa_ids:
-                logging.info(f"Applying bulk update for {len(on_disk_caa_ids)} downloaded records in batches...")
-                total = len(on_disk_caa_ids)
-                processed = 0
-                last_log = time.time()
-                for batch in chunk_list(on_disk_caa_ids, 1000):
-                    self.datastore.bulk_update_downloaded_status(batch)
-                    processed += len(batch)
-                    now = time.time()
-                    if now - last_log >= VERIFY_PROGRESS_INTERVAL:
-                        logging.info(f"Updated {processed} / {total} records in DB...")
-                        last_log = now
-                logging.info(f"Finished updating DB. Total records updated: {processed}")
-            else:
-                logging.info("No downloaded records found in cache.")
+            # Step 2: Scan files and update DB in streaming batches.
+            self._scan_and_update()
 
         self._print_summary()
         logging.info("Verification complete.")
