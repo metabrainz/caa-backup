@@ -143,6 +143,34 @@ On service change, consul-template sends SIGHUP → process restarts with new co
 
 Two-level prefix directories (first two chars of MBID) distribute files across 256 directories, avoiding filesystem performance issues with millions of files in one directory.
 
+### Directory Depth
+
+The directory depth is configurable via the `DIR_DEPTH` environment variable (default: 2).
+
+| Depth | Directories | Files per dir (~7M total) | Example path |
+|-------|-------------|---------------------------|--------------|
+| 0 | 1 | 7,000,000 | `images/ab52...-1000.jpg` |
+| 1 | 16 | 437,500 | `images/a/ab52...-1000.jpg` |
+| 2 | 256 | 27,000 | `images/a/b/ab52...-1000.jpg` |
+| 3 | 4,096 | 1,700 | `images/a/b/5/ab52...-1000.jpg` |
+
+To change depth, use the migration command:
+
+```bash
+# Preview what would be moved
+uv run python manage.py migrate-dirs --new-depth 3 --dry-run
+
+# Migrate (can be interrupted and resumed with --max-moves)
+uv run python manage.py migrate-dirs --new-depth 3
+
+# Migrate in batches
+uv run python manage.py migrate-dirs --new-depth 3 --max-moves 500000
+```
+
+Migration uses `os.rename` (atomic, no data copy on same filesystem) and takes
+approximately 5-10 minutes for 7M files. The downloader can run concurrently
+since it uses `os.walk` (depth-agnostic) and writes new files at the configured depth.
+
 ### Metadata Files
 
 Each release can have a `.meta.json.gz` file containing the full Internet Archive
