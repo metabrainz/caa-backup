@@ -108,7 +108,14 @@ def verify_file_integrity(filepath: str, expected: dict, check_md5: bool = False
 
 
 class MetadataFetcher:
-    """Fetches IA metadata for releases during idle time."""
+    """Fetches IA metadata for releases during idle time.
+
+    Iterates directories in deterministic order (sorted hex prefixes),
+    storing progress to resume across cycles.
+    """
+
+    PROGRESS_FILE = ".metadata_progress"
+    HEX_CHARS = "0123456789abcdef"
 
     def __init__(self, images_dir: str, rate_limit: float = 1.0):
         """
@@ -120,24 +127,91 @@ class MetadataFetcher:
         self.rate_limit = rate_limit
         self._shutdown_requested = False
 
-    def get_releases_needing_metadata(self, max_scan: int = 10000) -> list:
-        """Get release MBIDs that have images on disk but no metadata file.
+    def _progress_path(self) -> str:
+        return os.path.join(self.images_dir, self.PROGRESS_FILE)
 
-        Scans the filesystem directly rather than querying the database,
-        which is much faster for large datasets.
+    def _load_progress(self) -> tuple[int, str]:
+        """Load progress (depth, last_prefix). Returns (0, '') if no progress."""
+        path = self._progress_path()
+        if not os.path.exists(path):
+            return (0, "")
+        try:
+            with open(path) as f:
+                line = f.read().strip()
+            if ":" in line:
+                depth_str, prefix = line.split(":", 1)
+                return (int(depth_str), prefix)
+        except (ValueError, OSError):
+            pass
+        return (0, "")
+
+    def _save_progress(self, depth: int, prefix: str):
+        """Save current progress."""
+        path = self._progress_path()
+        with open(path, "w") as f:
+            f.write(f"{depth}:{prefix}")
+
+    def _generate_prefixes(self, depth: int) -> list[str]:
+        """Generate all directory prefixes in sorted order."""
+        import itertools
+
+        return ["/".join(combo) for combo in itertools.product(self.HEX_CHARS, repeat=depth)]
+
+    def run(self, deadline: float | None = None, stats=None):
+        """Fetch metadata for releases that need it.
+
+        Walks directories in deterministic order, resuming from last progress.
+        Stops at deadline or when all directories are processed.
+
+        Args:
+            deadline: Stop after this time (unix timestamp). None = no limit.
+            stats: Object with metadata_fetched attribute to update in real-time.
         """
-        from helpers import parse_local_filename
+        from helpers import get_dir_depth, parse_local_filename
 
-        needing = []
-        seen_mbids = set()
-        scanned = 0
+        depth = get_dir_depth()
+        saved_depth, last_prefix = self._load_progress()
 
-        for root, _, files in os.walk(self.images_dir):
-            for file in files:
-                if scanned >= max_scan:
-                    return needing
+        # Reset progress if depth changed
+        if saved_depth != depth:
+            last_prefix = ""
 
-                parsed = parse_local_filename(file)
+        prefixes = self._generate_prefixes(depth)
+        self.fetched = 0
+        errors = 0
+        started = False
+
+        for prefix in prefixes:
+            if self._shutdown_requested:
+                break
+            if deadline and time.time() >= deadline:
+                break
+
+            # Skip until we pass the last processed prefix
+            if last_prefix and not started:
+                if prefix == last_prefix:
+                    started = True
+                continue
+            started = True
+
+            dir_path = os.path.join(self.images_dir, *prefix.split("/"))
+            if not os.path.isdir(dir_path):
+                continue
+
+            # Find releases in this directory that need metadata
+            seen_mbids = set()
+            try:
+                entries = os.listdir(dir_path)
+            except OSError:
+                continue
+
+            for filename in entries:
+                if self._shutdown_requested:
+                    break
+                if deadline and time.time() >= deadline:
+                    break
+
+                parsed = parse_local_filename(filename)
                 if not parsed:
                     continue
 
@@ -145,49 +219,33 @@ class MetadataFetcher:
                 if mbid in seen_mbids:
                     continue
                 seen_mbids.add(mbid)
-                scanned += 1
 
-                if not os.path.exists(metadata_path(self.images_dir, mbid)):
-                    needing.append(mbid)
+                if os.path.exists(metadata_path(self.images_dir, mbid)):
+                    continue
 
-        return needing
+                # Fetch metadata for this release
+                if fetch_and_save_metadata(self.images_dir, mbid):
+                    self.fetched += 1
+                    if stats:
+                        stats.metadata_fetched += 1
+                else:
+                    errors += 1
 
-    def run(self, max_fetches: int | None = None, deadline: float | None = None, stats=None):
-        """Fetch metadata for releases that need it.
+                time.sleep(self.rate_limit)
 
-        Args:
-            max_fetches: Stop after this many fetches (None = no limit).
-            deadline: Stop after this time (unix timestamp). None = no limit.
-            stats: Object with metadata_fetched attribute to update in real-time.
-        """
-        mbids = self.get_releases_needing_metadata()
-        self.fetched = 0
-        if not mbids:
+            # Save progress after each prefix directory
+            self._save_progress(depth, prefix)
+        else:
+            # Loop completed without break — full pass done, reset for next pass
+            try:
+                os.remove(self._progress_path())
+            except FileNotFoundError:
+                pass
+
+        if self.fetched or errors:
+            logging.info(f"Metadata fetch: {self.fetched} fetched, {errors} errors")
+        else:
             logging.info("All releases have metadata.")
-            return
-
-        logging.info(f"Fetching metadata for {len(mbids)} releases...")
-        errors = 0
-
-        for mbid in mbids:
-            if self._shutdown_requested:
-                break
-            if max_fetches and self.fetched >= max_fetches:
-                break
-            if deadline and time.time() >= deadline:
-                break
-
-            if fetch_and_save_metadata(self.images_dir, mbid):
-                self.fetched += 1
-                if stats:
-                    stats.metadata_fetched += 1
-            else:
-                errors += 1
-
-            time.sleep(self.rate_limit)
-
-        remaining = len(mbids) - self.fetched - errors
-        logging.info(f"Metadata fetch complete: {self.fetched} fetched, {errors} errors, {remaining} remaining")
 
 
 class IntegrityChecker:

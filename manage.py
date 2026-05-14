@@ -15,6 +15,7 @@ Usage:
 
 import os
 import sys
+import time
 
 import click
 from dotenv import load_dotenv
@@ -385,9 +386,9 @@ if __name__ == "__main__":
 
 
 @cli.command()
-@click.option("--max-fetches", default=None, type=int, help="Maximum number of releases to fetch (default: unlimited)")
+@click.option("--duration", default=None, type=int, help="Run for this many seconds (default: unlimited)")
 @click.option("--rate-limit", default=1.0, type=float, help="Seconds between requests (default: 1.0)")
-def fetch_metadata(max_fetches, rate_limit):
+def fetch_metadata(duration, rate_limit):
     """
     Fetch Internet Archive metadata for releases.
 
@@ -407,7 +408,8 @@ def fetch_metadata(max_fetches, rate_limit):
         sys.exit(1)
 
     fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=rate_limit)
-    fetcher.run(max_fetches=max_fetches)
+    deadline = time.time() + duration if duration else None
+    fetcher.run(deadline=deadline)
 
     click.echo(f"Done. Fetched metadata for {fetcher.fetched} releases.")
 

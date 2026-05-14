@@ -33,7 +33,7 @@ def test_fetch_metadata_command(tmp_path):
             mock_response.raise_for_status = MagicMock()
             mock_get.return_value = mock_response
 
-            result = runner.invoke(cli, ["fetch-metadata", "--max-fetches", "1"])
+            result = runner.invoke(cli, ["fetch-metadata", "--duration", "5"])
 
     assert result.exit_code == 0
     assert "Fetched metadata for 1 releases" in result.output
