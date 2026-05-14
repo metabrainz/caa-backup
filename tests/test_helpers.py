@@ -41,8 +41,6 @@ def test_build_image_path_png():
     assert path == "/data/f/f/ff123456-0000-1111-2222-333344445555-999.png"
 
 
-
-
 def test_parse_local_filename():
     result = parse_local_filename("ab5245f6-ae8d-49a5-be42-6347f6c0330e-1347928453932.jpg")
     assert result == {"release_mbid": "ab5245f6-ae8d-49a5-be42-6347f6c0330e", "caa_id": 1347928453932, "ext": "jpg"}
