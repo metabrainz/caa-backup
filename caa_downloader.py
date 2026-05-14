@@ -190,8 +190,11 @@ class CAADownloader:
         # Fetch metadata if we don't have it yet
         meta_file = metadata_path(self.images_dir, release_mbid)
         if not os.path.exists(meta_file):
-            if not fetch_and_save_metadata(self.images_dir, release_mbid):
-                return None  # Can't verify, not an error
+            # Re-check with lock to avoid multiple threads fetching the same release
+            with self.lock:
+                if not os.path.exists(meta_file):
+                    if not fetch_and_save_metadata(self.images_dir, release_mbid):
+                        return None  # Can't verify, not an error
 
         metadata = load_metadata(self.images_dir, release_mbid)
         if not metadata:
