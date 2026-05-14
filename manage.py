@@ -313,6 +313,73 @@ def status():
             click.echo(f"Could not read database statistics: {e}")
 
 
+@cli.command()
+@click.option("--new-depth", required=True, type=int, help="New directory depth (e.g., 3)")
+@click.option("--dry-run", is_flag=True, help="Show what would be moved without moving")
+@click.option("--max-moves", default=None, type=int, help="Maximum files to move (default: unlimited)")
+def migrate_dirs(new_depth, dry_run, max_moves):
+    """
+    Migrate files from current directory depth to a new depth.
+
+    Moves image and metadata files from the old 2-level directory structure
+    to a deeper structure. Safe to interrupt — can be resumed.
+    """
+    import re
+
+    from helpers import migrate_release_files, parse_local_filename
+
+    MBID_RE = re.compile(r"^[0-9a-f-]{36}$")
+
+    images_dir = os.getenv("IMAGES_DIR") or os.getenv("CACHE_DIR") or os.getenv("BACKUP_DIR")
+
+    if not images_dir:
+        click.echo("Error: IMAGES_DIR environment variable is not set.", err=True)
+        sys.exit(1)
+
+    if new_depth < 0:
+        click.echo("Error: depth must be >= 0.", err=True)
+        sys.exit(1)
+
+    # Collect files that need migration
+    to_migrate = []
+    for root, _, files in os.walk(images_dir):
+        for file in files:
+            if max_moves and len(to_migrate) >= max_moves:
+                break
+
+            parsed = parse_local_filename(file)
+            if parsed:
+                release_mbid = parsed["release_mbid"]
+            elif file.endswith(".meta.json.gz"):
+                release_mbid = file.replace(".meta.json.gz", "")
+                if not MBID_RE.match(release_mbid):
+                    continue
+            else:
+                continue
+
+            src_path = os.path.join(root, file)
+            from helpers import release_dir
+
+            expected_dir = release_dir(images_dir, release_mbid, new_depth)
+            if os.path.dirname(src_path) != expected_dir:
+                to_migrate.append((src_path, release_mbid, file))
+
+    click.echo(f"Found {len(to_migrate)} files to migrate.")
+
+    moved = 0
+    for src_path, release_mbid, file in to_migrate:
+        if dry_run:
+            from helpers import release_dir
+
+            new_path = os.path.join(release_dir(images_dir, release_mbid, new_depth), file)
+            click.echo(f"  {src_path} -> {new_path}")
+        else:
+            migrate_release_files(images_dir, release_mbid, file, src_path, new_depth)
+        moved += 1
+
+    click.echo(f"{'Would move' if dry_run else 'Moved'}: {moved}")
+
+
 if __name__ == "__main__":
     cli()
 

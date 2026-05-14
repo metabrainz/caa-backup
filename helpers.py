@@ -64,16 +64,35 @@ def build_download_url(release_mbid: str, caa_id: int, extension: str) -> str:
     return f"https://archive.org/download/mbid-{release_mbid}/mbid-{release_mbid}-{caa_id}.{extension}"
 
 
-def release_dir(images_dir: str, release_mbid: str) -> str:
+DEFAULT_DIR_DEPTH = 2
+
+
+def get_dir_depth() -> int:
+    """Get configured directory depth from DIR_DEPTH env var, or default."""
+    try:
+        return int(os.environ.get("DIR_DEPTH", DEFAULT_DIR_DEPTH))
+    except ValueError:
+        return DEFAULT_DIR_DEPTH
+
+
+def release_dir(images_dir: str, release_mbid: str, depth: int | None = None) -> str:
     """Return the directory for a release's files.
 
-    Uses a two-level prefix structure based on the first two characters
-    of the release MBID to distribute files across directories.
+    Uses a prefix structure based on the first N characters of the release
+    MBID to distribute files across directories. Depth 0 means all files
+    go directly in images_dir.
 
     >>> release_dir("/data/images", "ab5245f6-ae8d-49a5-be42-6347f6c0330e")
     '/data/images/a/b'
+    >>> release_dir("/data/images", "ab5245f6-ae8d-49a5-be42-6347f6c0330e", depth=3)
+    '/data/images/a/b/5'
+    >>> release_dir("/data/images", "ab5245f6-ae8d-49a5-be42-6347f6c0330e", depth=0)
+    '/data/images'
     """
-    return os.path.join(images_dir, release_mbid[0], release_mbid[1])
+    if depth is None:
+        depth = get_dir_depth()
+    parts = [release_mbid[i] for i in range(depth)]
+    return os.path.join(images_dir, *parts)
 
 
 def build_image_path(images_dir: str, release_mbid: str, caa_id: int, extension: str) -> str:
@@ -84,3 +103,26 @@ def build_image_path(images_dir: str, release_mbid: str, caa_id: int, extension:
     """
     filename = f"{release_mbid}-{caa_id}.{extension}"
     return os.path.join(release_dir(images_dir, release_mbid), filename)
+
+
+def migrate_release_files(images_dir: str, release_mbid: str, filename: str, src_path: str, new_depth: int) -> bool:
+    """Move a file to the correct directory for the given depth.
+
+    Args:
+        images_dir: Root images directory.
+        release_mbid: The release MBID.
+        filename: The filename.
+        src_path: Current full path of the file.
+        new_depth: Target directory depth.
+
+    Returns True if file was moved, False if already in place.
+    """
+    new_dir = release_dir(images_dir, release_mbid, new_depth)
+    new_path = os.path.join(new_dir, filename)
+
+    if src_path == new_path:
+        return False  # Already at correct location
+
+    os.makedirs(new_dir, exist_ok=True)
+    os.rename(src_path, new_path)
+    return True

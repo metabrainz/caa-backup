@@ -32,6 +32,7 @@ uv run python manage.py fetch-metadata
 uv run python manage.py check-integrity
 uv run python manage.py check-integrity --check-md5
 uv run python manage.py monitor --port 8080
+uv run python manage.py migrate-dirs --new-depth 3 --dry-run
 ```
 
 ### First run
