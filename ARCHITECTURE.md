@@ -178,6 +178,23 @@ file listing (md5, sha1, crc32, size for each file in the IA item). These are
 fetched during idle time and used for integrity verification. The metadata is
 stored compressed alongside the images — no database state required.
 
+### Metadata Fetch Progress
+
+The file `{images_dir}/.metadata_progress` tracks where the metadata fetcher
+left off. It contains a single line: `{depth}:{prefix}` (e.g., `3:4/4/a`).
+
+The fetcher iterates all prefix directories in sorted hex order (`0/0/0` → `f/f/f`),
+fetching IA metadata for releases that don't have a `.meta.json.gz` file.
+Progress is saved after each prefix directory so the next cycle resumes where
+it left off.
+
+When a full pass completes (all prefixes processed), the progress file is
+deleted so the next cycle starts fresh — picking up any new releases or
+retrying previous failures.
+
+If `DIR_DEPTH` changes, progress resets automatically (the stored depth
+won't match the current depth).
+
 ## Error Handling
 
 - **HTTP 4xx** → `PERMANENT_ERROR` (image deleted or never existed)
