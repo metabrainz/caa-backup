@@ -24,7 +24,7 @@ As of May 2026, the backup contains ~7.1 million images.
 │  /data/caa-backup/caa-backup.db                               │ │
 │                                                               │ │
 │  Images directory                                             │ │
-│  /data/caa-backup/caa-backup/{a-f}/{a-f}/mbid-caa_id.ext      │ │
+│  /data/caa-backup/caa-backup/{0-f}/{0-f}/{0-f}/mbid-caa_id.ext│ │
 └───────────────────────────────────────────────────────────────┘ │
          │                                                        │
          │ PostgreSQL (read-only)                                  │
@@ -72,7 +72,7 @@ Each download:
 3. Renames `.tmp` → final path via `os.replace()`
 4. Updates SQLite status to `DOWNLOADED`
 
-File storage layout: `{images_dir}/{mbid[0]}/{mbid[1]}/{release_mbid}-{caa_id}.{ext}`
+File storage layout: `{images_dir}/{prefix dirs}/{release_mbid}-{caa_id}.{ext}` (see Directory Depth below)
 
 ### 4. Verification (reconciling disk with database)
 
@@ -94,9 +94,8 @@ startup:
         incremental import (new records since last timestamp)
         download any new pending images
         idle time:
-            fetch IA metadata for releases missing it (~1 req/sec)
             run integrity checks on files with metadata (size comparison)
-            sleep remaining time
+            fetch IA metadata for releases missing it (~1 req/sec, until next cycle)
 ```
 
 ## Configuration
@@ -107,6 +106,7 @@ startup:
 |----------|-------------|-----------------|
 | `DB_PATH` | SQLite database path | docker env |
 | `IMAGES_DIR` | Images storage directory | docker env |
+| `DIR_DEPTH` | Directory prefix depth (default: 2) | docker env |
 | `DOWNLOAD_THREADS` | Concurrent download threads | docker env |
 | `MONITOR_PORT` | HTTP status endpoint port | default 8080 |
 | `PG_CONN_STRING` | PostgreSQL connection | consul_config.py |
@@ -128,20 +128,20 @@ On service change, consul-template sends SIGHUP → process restarts with new co
 /data/caa-backup/
 ├── caa-backup.db          # SQLite tracking database
 └── caa-backup/            # Images directory
+    ├── .metadata_progress # Metadata fetch progress tracker
     ├── a/
-    │   ├── a/
-    │   │   ├── aa123456-...-12345.jpg
-    │   │   ├── aa123456-....meta.json.gz   # IA metadata (gzipped)
-    │   │   └── aa789012-...-67890.png
     │   ├── b/
-    │   │   ├── ab5245f6-...-1347928453932.jpg
-    │   │   └── ab5245f6-....meta.json.gz
+    │   │   ├── 5/
+    │   │   │   ├── ab5245f6-...-1347928453932.jpg
+    │   │   │   └── ab5245f6-....meta.json.gz
+    │   │   └── ...
     │   └── ...
-    ├── b/
     └── ...
 ```
 
-Two-level prefix directories (first two chars of MBID) distribute files across 256 directories, avoiding filesystem performance issues with millions of files in one directory.
+Prefix directories (based on the first N characters of the MBID, configurable via
+`DIR_DEPTH`) distribute files across directories, avoiding filesystem performance
+issues with millions of files in one directory.
 
 ### Directory Depth
 
@@ -242,7 +242,7 @@ MusicBrainz before being backed up.
 
 ## Known Limitations
 
-- **Deleted images not cleaned up** — if an image is removed from CAA, the local copy remains. ~22K orphaned files currently exist (~0.3% of total).
+- **Deleted images not cleaned up** — if an image is removed from CAA, the local copy remains.
 - **Metadata backfill is slow** — at 1 req/sec during idle time, backfilling metadata for all ~2.5M existing releases takes ~29 days. New releases are covered immediately.
 - **No resume within a file** — large images that timeout are re-downloaded from scratch.
 
