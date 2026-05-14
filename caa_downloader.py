@@ -459,7 +459,7 @@ def main():
             logging.info(f"Idle time: {int(sleep_time)}s — running background tasks...")
 
             # Fetch IA metadata for releases that don't have it yet
-            fetcher = MetadataFetcher(images_dir=images_dir, datastore=downloader.datastore, rate_limit=1.0)
+            fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
             fetcher._shutdown_requested = downloader._shutdown_requested
             fetcher.run(max_fetches=int(sleep_time * 0.4))  # Use ~40% of idle time
             downloader.metadata_fetched += fetcher.fetched

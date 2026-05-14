@@ -109,31 +109,47 @@ def verify_file_integrity(filepath: str, expected: dict, check_md5: bool = False
 class MetadataFetcher:
     """Fetches IA metadata for releases during idle time."""
 
-    def __init__(self, images_dir: str, datastore, rate_limit: float = 1.0):
+    def __init__(self, images_dir: str, rate_limit: float = 1.0):
         """
         Args:
             images_dir: Root images directory.
-            datastore: CAABackupDataStore instance (for listing releases).
             rate_limit: Minimum seconds between requests.
         """
         self.images_dir = images_dir
-        self.datastore = datastore
         self.rate_limit = rate_limit
         self._shutdown_requested = False
 
-    def get_releases_needing_metadata(self) -> list:
-        """Get release MBIDs that have downloaded images but no metadata file."""
-        from store import CoverStatus
+    def get_releases_needing_metadata(self, max_scan: int = 10000) -> list:
+        """Get release MBIDs that have images on disk but no metadata file.
 
-        with self.datastore:
-            records = (
-                self.datastore.model.select(self.datastore.model.release_mbid)
-                .where(self.datastore.model.status == CoverStatus.DOWNLOADED.value)
-                .distinct()
-            )
-            mbids = [r.release_mbid for r in records]
+        Scans the filesystem directly rather than querying the database,
+        which is much faster for large datasets.
+        """
+        from helpers import parse_local_filename
 
-        return [mbid for mbid in mbids if not os.path.exists(metadata_path(self.images_dir, mbid))]
+        needing = []
+        seen_mbids = set()
+        scanned = 0
+
+        for root, _, files in os.walk(self.images_dir):
+            for file in files:
+                if scanned >= max_scan:
+                    return needing
+
+                parsed = parse_local_filename(file)
+                if not parsed:
+                    continue
+
+                mbid = parsed["release_mbid"]
+                if mbid in seen_mbids:
+                    continue
+                seen_mbids.add(mbid)
+                scanned += 1
+
+                if not os.path.exists(metadata_path(self.images_dir, mbid)):
+                    needing.append(mbid)
+
+        return needing
 
     def run(self, max_fetches: int | None = None):
         """Fetch metadata for releases that need it.
