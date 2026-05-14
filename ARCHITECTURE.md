@@ -210,15 +210,18 @@ won't match the current depth).
 HTTP endpoint at `:{MONITOR_PORT}/status` returns JSON:
 ```json
 {
-    "total_to_download": 7164080,
-    "downloaded": 7140212,
-    "download_errors": 23868,
+    "total_to_download": 7165557,
+    "downloaded": 7141592,
+    "download_errors": 23965,
     "download_rate": 2.5,
-    "disk_total_bytes": ...,
-    "disk_free_bytes": ...,
-    "disk_used_percent": ...,
-    "seconds_before_full": ...,
-    "seconds_before_completed": ...
+    "disk_total_bytes": 21826318385152,
+    "disk_free_bytes": 7473833836544,
+    "disk_used_percent": 65.02,
+    "seconds_before_full": 83755746,
+    "seconds_before_completed": 522529,
+    "metadata_fetched": 976,
+    "integrity_checked": 51114,
+    "integrity_failures": 0
 }
 ```
 
