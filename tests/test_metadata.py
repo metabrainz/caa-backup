@@ -200,3 +200,33 @@ def test_integrity_checker_marks_for_redownload(db_setup, tmp_path):
     record = ds.get(1000)
     assert record.status == CoverStatus.NOT_DOWNLOADED.value
     assert "integrity" in record.error
+
+
+def test_metadata_fetcher_nothing_to_fetch(db_setup, tmp_path):
+    """MetadataFetcher.run() sets fetched=0 when all releases have metadata."""
+    from store import CoverStatus
+
+    from metadata_fetcher import MetadataFetcher
+
+    ds, db_path = db_setup
+    images_dir = str(tmp_path / "images")
+    prefix_dir = os.path.join(images_dir, "a", "b")
+    os.makedirs(prefix_dir)
+
+    # Add a downloaded record
+    ds.bulk_add(
+        [
+            {"caa_id": 1000, "release_mbid": MBID, "mime_type": "image/jpeg", "status": CoverStatus.NOT_DOWNLOADED},
+        ]
+    )
+    ds.update(caa_id=1000, release_mbid=MBID, new_status=CoverStatus.DOWNLOADED)
+
+    # Create the metadata file so it's already fetched
+    meta_path = os.path.join(prefix_dir, f"{MBID}.meta.json.gz")
+    with gzip.open(meta_path, "wt", encoding="utf-8") as f:
+        json.dump({"result": []}, f)
+
+    fetcher = MetadataFetcher(images_dir=images_dir, datastore=ds, rate_limit=0)
+    fetcher.run()
+
+    assert fetcher.fetched == 0
