@@ -144,12 +144,12 @@ class MetadataFetcher:
             max_fetches: Stop after this many fetches (None = no limit).
         """
         mbids = self.get_releases_needing_metadata()
+        self.fetched = 0
         if not mbids:
             logging.info("All releases have metadata.")
             return
 
         logging.info(f"Fetching metadata for {len(mbids)} releases...")
-        self.fetched = 0
         errors = 0
 
         for mbid in mbids:
