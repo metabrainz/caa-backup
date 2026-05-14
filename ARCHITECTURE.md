@@ -177,6 +177,21 @@ HTTP endpoint at `:{MONITOR_PORT}/status` returns JSON:
 }
 ```
 
+## Disaster Recovery
+
+This backup combined with the MusicBrainz PostgreSQL database contains everything
+needed to fully reconstruct the Cover Art Archive:
+
+- **Images:** All original-size files are on disk
+- **Metadata:** Image types (front, back, booklet, etc.), comments, ordering, and
+  edit history are in PostgreSQL (`cover_art_archive.*` tables)
+- **index.json:** The per-release JSON served by the CAA API can be regenerated
+  from PostgreSQL (same logic as [artwork-indexer](https://github.com/metabrainz/artwork-indexer))
+- **Thumbnails:** Can be regenerated from the original images
+
+The only data not recoverable are images that were deleted from both IA and
+MusicBrainz before being backed up.
+
 ## Known Limitations
 
 - **Deleted images not cleaned up** — if an image is removed from CAA, the local copy remains. ~22K orphaned files currently exist (~0.3% of total).
