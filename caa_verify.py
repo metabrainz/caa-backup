@@ -48,10 +48,16 @@ class CAAVerifier:
         batch = []
         processed = 0
         updated = 0
+        tmp_cleaned = 0
         last_log = time.time()
 
         for root, _, files in os.walk(self.images_dir):
             for file in files:
+                if file.endswith(".tmp"):
+                    os.remove(os.path.join(root, file))
+                    tmp_cleaned += 1
+                    continue
+
                 parts = os.path.splitext(file)[0].split("-")
                 if len(parts) >= 6:
                     try:
@@ -78,7 +84,10 @@ class CAAVerifier:
             self.datastore.bulk_update_downloaded_status(batch)
             updated += len(batch)
 
-        logging.info(f"Finished scanning. Files processed: {processed}, records updated: {updated}")
+        logging.info(
+            f"Finished scanning. Files processed: {processed}, "
+            f"records updated: {updated}, tmp files cleaned: {tmp_cleaned}"
+        )
         return updated
 
     def run_verifier(self):

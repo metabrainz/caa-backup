@@ -88,7 +88,7 @@ def test_verifier_resets_status_before_scan(setup):
     assert counts["NOT_DOWNLOADED"] == 1
 
 
-def test_verifier_ignores_tmp_files(setup):
+def test_verifier_cleans_tmp_files(setup):
     ds, images_dir, db_path = setup
 
     records = [
@@ -96,7 +96,7 @@ def test_verifier_ignores_tmp_files(setup):
     ]
     ds.bulk_add(records)
 
-    # Create a .tmp file (should be ignored)
+    # Create a .tmp file (should be deleted by verifier)
     prefix_dir = os.path.join(images_dir, "a", "b")
     os.makedirs(prefix_dir, exist_ok=True)
     tmp_path = os.path.join(prefix_dir, f"{MBID_A}-1000.jpg.tmp")
@@ -106,6 +106,7 @@ def test_verifier_ignores_tmp_files(setup):
     verifier = CAAVerifier(db_path=db_path, images_dir=images_dir)
     verifier.run_verifier()
 
+    assert not os.path.exists(tmp_path)
     counts = ds.get_status_counts()
     assert counts["DOWNLOADED"] == 0
     assert counts["NOT_DOWNLOADED"] == 1
