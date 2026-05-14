@@ -461,33 +461,24 @@ def main():
         if sleep_time > 0:
             logging.info(f"Idle time: {int(sleep_time)}s — running background tasks...")
 
-            # Run metadata fetch and integrity checks in parallel
+            # Fetch metadata for releases that don't have it yet
             fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
             fetcher._shutdown_requested = downloader._shutdown_requested
+            fetcher.run(max_fetches=int(sleep_time * 0.4), stats=downloader)
 
-            checker = IntegrityChecker(
-                images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
-            )
-            checker._shutdown_requested = downloader._shutdown_requested
+            # Run integrity checks with remaining time
+            if not downloader._shutdown_requested:
+                remaining = max(0, next_cycle - time.time())
+                checker = IntegrityChecker(
+                    images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
+                )
+                checker._shutdown_requested = downloader._shutdown_requested
+                checker.run(max_checks=int(remaining * 5), stats=downloader)
 
-            from threading import Thread
-
-            fetch_thread = Thread(
-                target=fetcher.run, kwargs={"max_fetches": int(sleep_time * 0.8), "stats": downloader}, daemon=True
-            )
-            check_thread = Thread(
-                target=checker.run, kwargs={"max_checks": int(sleep_time * 5), "stats": downloader}, daemon=True
-            )
-            fetch_thread.start()
-            check_thread.start()
-
-            # Wait for both or until next cycle
+            # Sleep any remaining time
             remaining = next_cycle - time.time()
-            while remaining > 0 and not downloader._shutdown_requested:
-                if not fetch_thread.is_alive() and not check_thread.is_alive():
-                    break
-                time.sleep(min(5, remaining))
-                remaining = next_cycle - time.time()
+            if remaining > 0 and not downloader._shutdown_requested:
+                time.sleep(remaining)
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
