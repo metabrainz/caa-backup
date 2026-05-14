@@ -153,11 +153,12 @@ class MetadataFetcher:
 
         return needing
 
-    def run(self, max_fetches: int | None = None, stats=None):
+    def run(self, max_fetches: int | None = None, deadline: float | None = None, stats=None):
         """Fetch metadata for releases that need it.
 
         Args:
             max_fetches: Stop after this many fetches (None = no limit).
+            deadline: Stop after this time (unix timestamp). None = no limit.
             stats: Object with metadata_fetched attribute to update in real-time.
         """
         mbids = self.get_releases_needing_metadata()
@@ -173,6 +174,8 @@ class MetadataFetcher:
             if self._shutdown_requested:
                 break
             if max_fetches and self.fetched >= max_fetches:
+                break
+            if deadline and time.time() >= deadline:
                 break
 
             if fetch_and_save_metadata(self.images_dir, mbid):

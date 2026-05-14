@@ -461,24 +461,19 @@ def main():
         if sleep_time > 0:
             logging.info(f"Idle time: {int(sleep_time)}s — running background tasks...")
 
-            # Fetch metadata for releases that don't have it yet
-            fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
-            fetcher._shutdown_requested = downloader._shutdown_requested
-            fetcher.run(max_fetches=int(sleep_time * 0.4), stats=downloader)
-
-            # Run integrity checks with remaining time
+            # Integrity checks are fast (stat calls only) — run first
             if not downloader._shutdown_requested:
-                remaining = max(0, next_cycle - time.time())
                 checker = IntegrityChecker(
-                    images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0.1
+                    images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0
                 )
                 checker._shutdown_requested = downloader._shutdown_requested
-                checker.run(max_checks=int(remaining * 5), stats=downloader)
+                checker.run(stats=downloader)
 
-            # Sleep any remaining time
-            remaining = next_cycle - time.time()
-            if remaining > 0 and not downloader._shutdown_requested:
-                time.sleep(remaining)
+            # Metadata fetch uses remaining time until next cycle
+            if not downloader._shutdown_requested:
+                fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
+                fetcher._shutdown_requested = downloader._shutdown_requested
+                fetcher.run(deadline=next_cycle, stats=downloader)
         else:
             logging.info("Cycle took longer than the update frequency, starting next cycle immediately.")
 
