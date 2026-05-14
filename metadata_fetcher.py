@@ -45,8 +45,10 @@ def fetch_and_save_metadata(images_dir: str, release_mbid: str, timeout: int = 3
             logging.warning(f"Unexpected metadata format for {release_mbid}")
             return False
 
-        # Atomic write: gzip to .tmp, then rename
-        tmp_path = dest + ".tmp"
+        # Atomic write: gzip to unique .tmp, then rename
+        import threading
+
+        tmp_path = f"{dest}.{threading.get_ident()}.tmp"
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with gzip.open(tmp_path, "wt", encoding="utf-8") as f:
             json.dump(data, f)
