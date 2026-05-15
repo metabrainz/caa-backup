@@ -60,6 +60,9 @@ def test_stats_returns_expected_keys(db_setup, tmp_path):
         "metadata_fetched",
         "integrity_checked",
         "integrity_failures",
+        "cycle_downloaded_files",
+        "cycle_downloaded_bytes",
+        "cycle_download_errors",
     }
     assert set(stats.keys()) == expected_keys
 

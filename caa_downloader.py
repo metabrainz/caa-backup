@@ -70,6 +70,9 @@ class CAADownloader:
         self.metadata_fetched = 0
         self.integrity_checked = 0
         self.integrity_failures = 0
+        self.cycle_downloaded_files = 0
+        self.cycle_downloaded_bytes = 0
+        self.cycle_download_errors = 0
         self.lock = Lock()
         self._shutdown_requested = False
         self._growth_tracker_initialized = False
@@ -149,6 +152,9 @@ class CAADownloader:
             "metadata_fetched": self.metadata_fetched,
             "integrity_checked": self.integrity_checked,
             "integrity_failures": self.integrity_failures,
+            "cycle_downloaded_files": self.cycle_downloaded_files,
+            "cycle_downloaded_bytes": self.cycle_downloaded_bytes,
+            "cycle_download_errors": self.cycle_download_errors,
         }
 
     def _verify_after_download(self, release_mbid: str, caa_id: int, filepath: str, extension: str) -> str | None:
@@ -219,6 +225,7 @@ class CAADownloader:
             with open(tmp_filepath, "wb") as f:
                 f.write(response.content)
             os.replace(tmp_filepath, filepath)
+            downloaded_bytes = len(response.content)
 
         except requests.exceptions.HTTPError as e:
             if 400 <= e.response.status_code < 500:
@@ -260,6 +267,7 @@ class CAADownloader:
 
                 with self.lock:
                     self.download_times.append(time.time())
+                    self.cycle_downloaded_bytes += downloaded_bytes
 
                 return release_mbid, caa_id
             except Exception as e:
@@ -307,8 +315,9 @@ class CAADownloader:
             try:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     total_to_download = self.total
-                    downloaded_this_session = 0
-                    errors_this_session = 0
+                    self.cycle_downloaded_files = 0
+                    self.cycle_downloaded_bytes = 0
+                    self.cycle_download_errors = 0
                     start_time = time.time()
                     last_log = start_time
                     while not self._shutdown_requested:
@@ -330,10 +339,10 @@ class CAADownloader:
                             try:
                                 result = future.result()
                                 if result[0] is not None:
-                                    downloaded_this_session += 1
+                                    self.cycle_downloaded_files += 1
                                     self.downloaded += 1
                                 else:
-                                    errors_this_session += 1
+                                    self.cycle_download_errors += 1
                                     self.errors += 1
                             except Exception as e:
                                 logging.error(f"A download task generated an exception: {e}")
@@ -349,7 +358,8 @@ class CAADownloader:
                                 last_log = now
 
                     logging.info(
-                        f"Session complete: {downloaded_this_session} downloaded, {errors_this_session} errors"
+                        f"Session complete: {self.cycle_downloaded_files} downloaded,"
+                        f" {self.cycle_download_errors} errors"
                     )
             except KeyboardInterrupt:
                 logging.info("Shutdown requested, waiting for in-flight downloads to finish...")
