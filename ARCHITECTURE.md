@@ -221,11 +221,29 @@ HTTP endpoint at `:{MONITOR_PORT}/status` returns JSON:
     "disk_used_percent": 65.02,
     "seconds_before_full": 83755746,
     "seconds_before_completed": 522529,
-    "metadata_fetched": 976,
-    "integrity_checked": 51114,
-    "integrity_failures": 0
+    "cycle_metadata_fetched": 1627,
+    "cycle_integrity_checked": 114201,
+    "cycle_integrity_failures": 0,
+    "cycle_downloaded_files": 277,
+    "cycle_downloaded_bytes": 54832640,
+    "cycle_download_errors": 1
 }
 ```
+
+Field descriptions:
+
+- `total_to_download` / `downloaded` / `download_errors`: cumulative totals from the database
+- `download_rate`: instantaneous download rate (files/sec) from recent downloads
+- `disk_*`: current disk usage for the images partition
+- `seconds_before_full`: estimated seconds until disk is full, based on observed
+  disk growth over a 1-hour sliding window (accounts for pauses and idle periods)
+- `seconds_before_completed`: estimated seconds until all pending downloads finish,
+  based on observed download rate over a 1-hour window (excludes permanent errors)
+- `cycle_*`: per-cycle stats that reset each cycle (default: every hour, controlled by `UPDATE_FREQUENCY`):
+  - `cycle_downloaded_files` / `cycle_downloaded_bytes` / `cycle_download_errors`:
+    image downloads in the current/last download session (bytes includes metadata fetches)
+  - `cycle_metadata_fetched`: metadata files fetched from Internet Archive
+  - `cycle_integrity_checked` / `cycle_integrity_failures`: files verified in the last integrity run
 
 ## Disaster Recovery
 

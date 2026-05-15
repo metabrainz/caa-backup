@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from caa_importer import CAAImporter
 from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
+from growth_tracker import DiskGrowthTracker
 from helpers import USER_AGENT, build_download_url, build_image_path, extension_from_mime
 from metadata_fetcher import IntegrityChecker, MetadataFetcher
 from store import CAABackupDataStore, CoverStatus
@@ -65,11 +66,16 @@ class CAADownloader:
         self.total = 0
         self.downloaded = 0
         self.errors = 0
-        self.metadata_fetched = 0
-        self.integrity_checked = 0
-        self.integrity_failures = 0
+        self.permanent_errors = 0
+        self.cycle_metadata_fetched = 0
+        self.cycle_integrity_checked = 0
+        self.cycle_integrity_failures = 0
+        self.cycle_downloaded_files = 0
+        self.cycle_downloaded_bytes = 0
+        self.cycle_download_errors = 0
         self.lock = Lock()
         self._shutdown_requested = False
+        self._growth_tracker_initialized = False
 
         # Queue to track download completion times for rate calculation
         self.download_times = deque(maxlen=25)
@@ -78,6 +84,10 @@ class CAADownloader:
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
             logging.info(f"Created base images directory: {self.images_dir}")
+
+        # Background tracker for accurate ETAs (accounts for pauses)
+        self.growth_tracker = DiskGrowthTracker(path=self.images_dir, downloader=self)
+        self.growth_tracker.start()
 
     def get_download_rate(self):
         """
@@ -116,35 +126,6 @@ class CAADownloader:
                 logging.warning("Failed to get disk usage for images_dir '%s': %s", self.images_dir, exc)
         return None, None, None, None
 
-    def estimate_seconds_before_full(self, download_rate, used_bytes, total_bytes, downloaded):
-        """
-        Estimate the number of seconds before the disk is full, based on current download rate.
-
-        Returns:
-            float or None: Seconds before full, or None if cannot estimate.
-        """
-        if not all([download_rate, used_bytes, total_bytes, downloaded]):
-            return None
-        avg_file_size = used_bytes / downloaded if downloaded else 0
-        bytes_until_full = total_bytes - used_bytes
-        if download_rate > 0 and avg_file_size > 0 and bytes_until_full > 0:
-            files_left = bytes_until_full / avg_file_size
-            return files_left / download_rate
-        return None
-
-    def estimate_seconds_before_completed(self, download_rate):
-        """
-        Estimate the number of seconds before all downloads are completed.
-
-        Returns:
-            float or None: Estimated seconds remaining, or None if cannot estimate.
-        """
-        if self.total is not None and self.downloaded is not None:
-            files_left_to_download = self.total - self.downloaded
-            if download_rate > 0 and files_left_to_download > 0:
-                return files_left_to_download / download_rate
-        return None
-
     def stats(self):
         """
         Return current download and disk usage statistics, including
@@ -156,8 +137,8 @@ class CAADownloader:
 
         download_rate = self.get_download_rate()
         total, free, used, used_percent = self.get_disk_usage_stats()
-        seconds_before_full = self.estimate_seconds_before_full(download_rate, used, total, self.downloaded)
-        seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
+        seconds_before_full = self.growth_tracker.seconds_before_full()
+        seconds_before_completed = self.growth_tracker.seconds_before_completed()
         return {
             "total_to_download": self.total,
             "downloaded": self.downloaded,
@@ -168,9 +149,12 @@ class CAADownloader:
             "disk_used_percent": used_percent,
             "seconds_before_full": seconds_before_full,
             "seconds_before_completed": seconds_before_completed,
-            "metadata_fetched": self.metadata_fetched,
-            "integrity_checked": self.integrity_checked,
-            "integrity_failures": self.integrity_failures,
+            "cycle_metadata_fetched": self.cycle_metadata_fetched,
+            "cycle_integrity_checked": self.cycle_integrity_checked,
+            "cycle_integrity_failures": self.cycle_integrity_failures,
+            "cycle_downloaded_files": self.cycle_downloaded_files,
+            "cycle_downloaded_bytes": self.cycle_downloaded_bytes,
+            "cycle_download_errors": self.cycle_download_errors,
         }
 
     def _verify_after_download(self, release_mbid: str, caa_id: int, filepath: str, extension: str) -> str | None:
@@ -193,7 +177,7 @@ class CAADownloader:
             # Re-check with lock to avoid multiple threads fetching the same release
             with self.lock:
                 if not os.path.exists(meta_file):
-                    if not fetch_and_save_metadata(self.images_dir, release_mbid):
+                    if not fetch_and_save_metadata(self.images_dir, release_mbid, stats=self):
                         return None  # Can't verify, not an error
 
         metadata = load_metadata(self.images_dir, release_mbid)
@@ -241,6 +225,7 @@ class CAADownloader:
             with open(tmp_filepath, "wb") as f:
                 f.write(response.content)
             os.replace(tmp_filepath, filepath)
+            downloaded_bytes = len(response.content)
 
         except requests.exceptions.HTTPError as e:
             if 400 <= e.response.status_code < 500:
@@ -282,6 +267,7 @@ class CAADownloader:
 
                 with self.lock:
                     self.download_times.append(time.time())
+                    self.cycle_downloaded_bytes += downloaded_bytes
 
                 return release_mbid, caa_id
             except Exception as e:
@@ -311,8 +297,14 @@ class CAADownloader:
             status_counts = self.datastore.get_status_counts()
             self.downloaded = status_counts.get("DOWNLOADED", 0)
             self.errors = status_counts.get("TEMP_ERROR", 0) + status_counts.get("PERMANENT_ERROR", 0)
+            self.permanent_errors = status_counts.get("PERMANENT_ERROR", 0)
             self.total = sum(status_counts.values())
             pending = status_counts.get("NOT_DOWNLOADED", 0)
+
+            # Reset growth tracker on first run to establish correct baseline
+            if not self._growth_tracker_initialized:
+                self.growth_tracker.reset()
+                self._growth_tracker_initialized = True
 
             if pending == 0:
                 logging.info("No pending downloads.")
@@ -323,8 +315,9 @@ class CAADownloader:
             try:
                 with ThreadPoolExecutor(max_workers=self.download_threads) as executor:
                     total_to_download = self.total
-                    downloaded_this_session = 0
-                    errors_this_session = 0
+                    self.cycle_downloaded_files = 0
+                    self.cycle_downloaded_bytes = 0
+                    self.cycle_download_errors = 0
                     start_time = time.time()
                     last_log = start_time
                     while not self._shutdown_requested:
@@ -346,10 +339,10 @@ class CAADownloader:
                             try:
                                 result = future.result()
                                 if result[0] is not None:
-                                    downloaded_this_session += 1
+                                    self.cycle_downloaded_files += 1
                                     self.downloaded += 1
                                 else:
-                                    errors_this_session += 1
+                                    self.cycle_download_errors += 1
                                     self.errors += 1
                             except Exception as e:
                                 logging.error(f"A download task generated an exception: {e}")
@@ -365,7 +358,8 @@ class CAADownloader:
                                 last_log = now
 
                     logging.info(
-                        f"Session complete: {downloaded_this_session} downloaded, {errors_this_session} errors"
+                        f"Session complete: {self.cycle_downloaded_files} downloaded,"
+                        f" {self.cycle_download_errors} errors"
                     )
             except KeyboardInterrupt:
                 logging.info("Shutdown requested, waiting for in-flight downloads to finish...")
@@ -463,6 +457,8 @@ def main():
 
             # Integrity checks are fast (stat calls only) — run first
             if not downloader._shutdown_requested:
+                downloader.cycle_integrity_checked = 0
+                downloader.cycle_integrity_failures = 0
                 checker = IntegrityChecker(
                     images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0
                 )
@@ -471,6 +467,7 @@ def main():
 
             # Metadata fetch uses remaining time until next cycle
             if not downloader._shutdown_requested:
+                downloader.cycle_metadata_fetched = 0
                 fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
                 fetcher._shutdown_requested = downloader._shutdown_requested
                 fetcher.run(deadline=next_cycle, stats=downloader)

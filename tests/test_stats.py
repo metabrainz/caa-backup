@@ -57,9 +57,12 @@ def test_stats_returns_expected_keys(db_setup, tmp_path):
         "disk_used_percent",
         "seconds_before_full",
         "seconds_before_completed",
-        "metadata_fetched",
-        "integrity_checked",
-        "integrity_failures",
+        "cycle_metadata_fetched",
+        "cycle_integrity_checked",
+        "cycle_integrity_failures",
+        "cycle_downloaded_files",
+        "cycle_downloaded_bytes",
+        "cycle_download_errors",
     }
     assert set(stats.keys()) == expected_keys
 
@@ -77,11 +80,14 @@ def test_stats_values_reflect_state(db_setup, tmp_path):
 
 def test_estimate_seconds_before_completed(db_setup, tmp_path):
     dl = _make_downloader(db_setup, tmp_path)
+    dl.growth_tracker.stop()
     dl.total = 1000
     dl.downloaded = 500
+    # Simulate growth tracker samples: 500 downloads over 500 seconds
     now = time.time()
-    for i in range(10):
-        dl.download_times.append(now - 9 + i)
+    dl.growth_tracker.download_tracker.samples.clear()
+    dl.growth_tracker.download_tracker.record(0, now - 500)
+    dl.growth_tracker.download_tracker.record(500, now)
     stats = dl.stats()
     assert stats["seconds_before_completed"] is not None
     assert 400 < stats["seconds_before_completed"] < 600

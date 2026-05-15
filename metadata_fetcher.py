@@ -26,7 +26,7 @@ def metadata_path(images_dir: str, release_mbid: str) -> str:
     return os.path.join(release_dir(images_dir, release_mbid), f"{release_mbid}.meta.json.gz")
 
 
-def fetch_and_save_metadata(images_dir: str, release_mbid: str, timeout: int = 30) -> bool:
+def fetch_and_save_metadata(images_dir: str, release_mbid: str, timeout: int = 30, stats=None) -> bool:
     """Fetch IA metadata for a release and save as .meta.json.gz.
 
     Returns True on success, False on failure.
@@ -52,6 +52,8 @@ def fetch_and_save_metadata(images_dir: str, release_mbid: str, timeout: int = 3
         with gzip.open(tmp_path, "wt", encoding="utf-8") as f:
             json.dump(data, f)
         os.replace(tmp_path, dest)
+        if stats and hasattr(stats, "cycle_downloaded_bytes"):
+            stats.cycle_downloaded_bytes += len(response.content)
         return True
 
     except (requests.RequestException, json.JSONDecodeError, OSError) as e:
@@ -165,7 +167,7 @@ class MetadataFetcher:
 
         Args:
             deadline: Stop after this time (unix timestamp). None = no limit.
-            stats: Object with metadata_fetched attribute to update in real-time.
+            stats: Object with cycle_metadata_fetched attribute to update in real-time.
         """
         from helpers import get_dir_depth, parse_local_filename
 
@@ -224,10 +226,10 @@ class MetadataFetcher:
                     continue
 
                 # Fetch metadata for this release
-                if fetch_and_save_metadata(self.images_dir, mbid):
+                if fetch_and_save_metadata(self.images_dir, mbid, stats=stats):
                     self.fetched += 1
                     if stats:
-                        stats.metadata_fetched += 1
+                        stats.cycle_metadata_fetched += 1
                 else:
                     errors += 1
 
@@ -271,7 +273,7 @@ class IntegrityChecker:
         Returns list of (filepath, error_description) tuples for failures.
         Args:
             max_checks: Stop after this many checks (None = no limit).
-            stats: Object with integrity_checked/integrity_failures attributes to update in real-time.
+            stats: Object with cycle_integrity_checked/cycle_integrity_failures attributes to update in real-time.
         """
         failures = []
         self.checked = 0
@@ -317,7 +319,7 @@ class IntegrityChecker:
                             failures.append((filepath, error))
                             logging.warning(f"Integrity check failed: {filepath}: {error}")
                             if stats:
-                                stats.integrity_failures += 1
+                                stats.cycle_integrity_failures += 1
 
                             # Mark for re-download if datastore is available
                             if self.datastore:
@@ -332,7 +334,7 @@ class IntegrityChecker:
 
                     self.checked += 1
                     if stats:
-                        stats.integrity_checked += 1
+                        stats.cycle_integrity_checked += 1
                     if self.rate_limit:
                         time.sleep(self.rate_limit)
 
