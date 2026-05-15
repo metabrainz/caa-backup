@@ -251,7 +251,7 @@ def test_metadata_fetcher_progress(tmp_path, monkeypatch):
 
     call_count = 0
 
-    def mock_fetch(images_dir, release_mbid, timeout=30):
+    def mock_fetch(images_dir, release_mbid, timeout=30, **kwargs):
         nonlocal call_count
         call_count += 1
         # Create the metadata file
@@ -296,7 +296,7 @@ def test_metadata_fetcher_resumes_after_progress(tmp_path, monkeypatch):
 
     fetched_mbids = []
 
-    def mock_fetch(images_dir, release_mbid, timeout=30):
+    def mock_fetch(images_dir, release_mbid, timeout=30, **kwargs):
         fetched_mbids.append(release_mbid)
         path = os.path.join(images_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -332,7 +332,7 @@ def test_metadata_fetcher_partial_pass_saves_progress(tmp_path, monkeypatch):
 
     fetch_count = [0]
 
-    def mock_fetch(img_dir, release_mbid, timeout=30):
+    def mock_fetch(img_dir, release_mbid, timeout=30, **kwargs):
         fetch_count[0] += 1
         # After first fetch, request shutdown
         if fetch_count[0] >= 1:
@@ -379,7 +379,7 @@ def test_metadata_fetcher_full_pass_resets_progress(tmp_path, monkeypatch):
 
     from unittest.mock import patch
 
-    def mock_fetch(img_dir, release_mbid, timeout=30):
+    def mock_fetch(img_dir, release_mbid, timeout=30, **kwargs):
         path = os.path.join(img_dir, release_mbid[0], release_mbid[1], f"{release_mbid}.meta.json.gz")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with gzip.open(path, "wt") as f:
@@ -417,7 +417,7 @@ def test_metadata_fetcher_deadline_stops_and_saves(tmp_path, monkeypatch):
     fetch_count = [0]
     fake_time = [time_mod.time()]
 
-    def mock_fetch(img_dir, release_mbid, timeout=30):
+    def mock_fetch(img_dir, release_mbid, timeout=30, **kwargs):
         fetch_count[0] += 1
         # Simulate time passing past deadline after first fetch
         fake_time[0] += 9999

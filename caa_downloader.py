@@ -67,9 +67,9 @@ class CAADownloader:
         self.downloaded = 0
         self.errors = 0
         self.permanent_errors = 0
-        self.metadata_fetched = 0
-        self.integrity_checked = 0
-        self.integrity_failures = 0
+        self.cycle_metadata_fetched = 0
+        self.cycle_integrity_checked = 0
+        self.cycle_integrity_failures = 0
         self.cycle_downloaded_files = 0
         self.cycle_downloaded_bytes = 0
         self.cycle_download_errors = 0
@@ -149,9 +149,9 @@ class CAADownloader:
             "disk_used_percent": used_percent,
             "seconds_before_full": seconds_before_full,
             "seconds_before_completed": seconds_before_completed,
-            "metadata_fetched": self.metadata_fetched,
-            "integrity_checked": self.integrity_checked,
-            "integrity_failures": self.integrity_failures,
+            "cycle_metadata_fetched": self.cycle_metadata_fetched,
+            "cycle_integrity_checked": self.cycle_integrity_checked,
+            "cycle_integrity_failures": self.cycle_integrity_failures,
             "cycle_downloaded_files": self.cycle_downloaded_files,
             "cycle_downloaded_bytes": self.cycle_downloaded_bytes,
             "cycle_download_errors": self.cycle_download_errors,
@@ -177,7 +177,7 @@ class CAADownloader:
             # Re-check with lock to avoid multiple threads fetching the same release
             with self.lock:
                 if not os.path.exists(meta_file):
-                    if not fetch_and_save_metadata(self.images_dir, release_mbid):
+                    if not fetch_and_save_metadata(self.images_dir, release_mbid, stats=self):
                         return None  # Can't verify, not an error
 
         metadata = load_metadata(self.images_dir, release_mbid)
@@ -457,8 +457,8 @@ def main():
 
             # Integrity checks are fast (stat calls only) — run first
             if not downloader._shutdown_requested:
-                downloader.integrity_checked = 0
-                downloader.integrity_failures = 0
+                downloader.cycle_integrity_checked = 0
+                downloader.cycle_integrity_failures = 0
                 checker = IntegrityChecker(
                     images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0
                 )
@@ -467,7 +467,7 @@ def main():
 
             # Metadata fetch uses remaining time until next cycle
             if not downloader._shutdown_requested:
-                downloader.metadata_fetched = 0
+                downloader.cycle_metadata_fetched = 0
                 fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
                 fetcher._shutdown_requested = downloader._shutdown_requested
                 fetcher.run(deadline=next_cycle, stats=downloader)
