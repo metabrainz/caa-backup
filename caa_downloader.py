@@ -28,6 +28,7 @@ from dotenv import load_dotenv
 from caa_importer import CAAImporter
 from caa_monitor import CAAServiceMonitor
 from caa_verify import CAAVerifier
+from growth_tracker import DiskGrowthTracker
 from helpers import USER_AGENT, build_download_url, build_image_path, extension_from_mime
 from metadata_fetcher import IntegrityChecker, MetadataFetcher
 from store import CAABackupDataStore, CoverStatus
@@ -65,11 +66,13 @@ class CAADownloader:
         self.total = 0
         self.downloaded = 0
         self.errors = 0
+        self.permanent_errors = 0
         self.metadata_fetched = 0
         self.integrity_checked = 0
         self.integrity_failures = 0
         self.lock = Lock()
         self._shutdown_requested = False
+        self._growth_tracker_initialized = False
 
         # Queue to track download completion times for rate calculation
         self.download_times = deque(maxlen=25)
@@ -78,6 +81,10 @@ class CAADownloader:
         if not os.path.exists(self.images_dir):
             os.makedirs(self.images_dir)
             logging.info(f"Created base images directory: {self.images_dir}")
+
+        # Background tracker for accurate ETAs (accounts for pauses)
+        self.growth_tracker = DiskGrowthTracker(path=self.images_dir, downloader=self)
+        self.growth_tracker.start()
 
     def get_download_rate(self):
         """
@@ -116,35 +123,6 @@ class CAADownloader:
                 logging.warning("Failed to get disk usage for images_dir '%s': %s", self.images_dir, exc)
         return None, None, None, None
 
-    def estimate_seconds_before_full(self, download_rate, used_bytes, total_bytes, downloaded):
-        """
-        Estimate the number of seconds before the disk is full, based on current download rate.
-
-        Returns:
-            float or None: Seconds before full, or None if cannot estimate.
-        """
-        if not all([download_rate, used_bytes, total_bytes, downloaded]):
-            return None
-        avg_file_size = used_bytes / downloaded if downloaded else 0
-        bytes_until_full = total_bytes - used_bytes
-        if download_rate > 0 and avg_file_size > 0 and bytes_until_full > 0:
-            files_left = bytes_until_full / avg_file_size
-            return files_left / download_rate
-        return None
-
-    def estimate_seconds_before_completed(self, download_rate):
-        """
-        Estimate the number of seconds before all downloads are completed.
-
-        Returns:
-            float or None: Estimated seconds remaining, or None if cannot estimate.
-        """
-        if self.total is not None and self.downloaded is not None:
-            files_left_to_download = self.total - self.downloaded
-            if download_rate > 0 and files_left_to_download > 0:
-                return files_left_to_download / download_rate
-        return None
-
     def stats(self):
         """
         Return current download and disk usage statistics, including
@@ -156,8 +134,8 @@ class CAADownloader:
 
         download_rate = self.get_download_rate()
         total, free, used, used_percent = self.get_disk_usage_stats()
-        seconds_before_full = self.estimate_seconds_before_full(download_rate, used, total, self.downloaded)
-        seconds_before_completed = self.estimate_seconds_before_completed(download_rate)
+        seconds_before_full = self.growth_tracker.seconds_before_full()
+        seconds_before_completed = self.growth_tracker.seconds_before_completed()
         return {
             "total_to_download": self.total,
             "downloaded": self.downloaded,
@@ -311,8 +289,14 @@ class CAADownloader:
             status_counts = self.datastore.get_status_counts()
             self.downloaded = status_counts.get("DOWNLOADED", 0)
             self.errors = status_counts.get("TEMP_ERROR", 0) + status_counts.get("PERMANENT_ERROR", 0)
+            self.permanent_errors = status_counts.get("PERMANENT_ERROR", 0)
             self.total = sum(status_counts.values())
             pending = status_counts.get("NOT_DOWNLOADED", 0)
+
+            # Reset growth tracker on first run to establish correct baseline
+            if not self._growth_tracker_initialized:
+                self.growth_tracker.reset()
+                self._growth_tracker_initialized = True
 
             if pending == 0:
                 logging.info("No pending downloads.")
