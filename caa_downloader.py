@@ -447,6 +447,8 @@ def main():
 
             # Integrity checks are fast (stat calls only) — run first
             if not downloader._shutdown_requested:
+                downloader.integrity_checked = 0
+                downloader.integrity_failures = 0
                 checker = IntegrityChecker(
                     images_dir=images_dir, datastore=downloader.datastore, check_md5=False, rate_limit=0
                 )
@@ -455,6 +457,7 @@ def main():
 
             # Metadata fetch uses remaining time until next cycle
             if not downloader._shutdown_requested:
+                downloader.metadata_fetched = 0
                 fetcher = MetadataFetcher(images_dir=images_dir, rate_limit=1.0)
                 fetcher._shutdown_requested = downloader._shutdown_requested
                 fetcher.run(deadline=next_cycle, stats=downloader)
